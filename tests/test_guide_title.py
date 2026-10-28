@@ -182,6 +182,26 @@ class GuideTitleTest(unittest.TestCase):
         self.assertIn("(retired)", self.hook(title="anything").stdout)
         self.assertNotIn("(g)", self.hook(title="anything").stdout)
 
+    def test_an_empty_or_unknown_id_is_an_error_not_this_session(self):
+        for cmd in ("guided", "unguided", "retire"):
+            for sid in ("", "  ", "deadbeef"):
+                r = self.run_script(cmd, sid, CLAUDE_CODE_SESSION_ID=WORKER)
+                self.assertNotEqual(r.returncode, 0, (cmd, sid))
+        self.assertNotEqual(self.run_script("mark", self.ledger, "--session", "", CLAUDE_CODE_SESSION_ID=WORKER)
+                            .returncode, 0)
+        self.assertFalse(os.path.exists(os.path.join(self.cfg, "session-guide", "guides", WORKER)))
+        self.assertEqual(self.run_script("guided", CLAUDE_CODE_SESSION_ID=WORKER).returncode, 0)  # no id: this one
+        self.assertEqual(self.worker_title("billing lead"), "(g) billing lead")
+
+    def test_an_id_prefix_resolves_from_a_worktree_project_folder(self):
+        for proj in ("-tmp-repo", "-tmp-repo--claude-worktrees-billing"):  # moved into a worktree mid-session
+            os.makedirs(os.path.join(self.cfg, "projects", proj))
+        open(os.path.join(self.cfg, "projects", "-tmp-repo--claude-worktrees-billing", WORKER + ".jsonl"), "w").close()
+        self.assertEqual(self.run_script("guided", WORKER[:8]).returncode, 0)
+        open(os.path.join(self.cfg, "projects", "-tmp-repo", WORKER + ".jsonl"), "w").close()  # in both: one session
+        self.assertEqual(self.run_script("unguided", WORKER[:8]).returncode, 0)
+        self.assertEqual(self.worker_title("(g) billing lead"), "billing lead")
+
     def test_a_guided_worker_that_becomes_the_guide_loses_the_prefix(self):
         self.run_script("guided", WORKER)
         self.assertEqual(self.run_script("mark", self.ledger, "--session", WORKER).returncode, 0)

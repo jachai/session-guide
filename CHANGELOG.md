@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format is based on
   WATCHED / IGNORED) takes it off. Never doubled, kept through renames and session-titles focus updates, never on a
   guide or a retired guide. Override: `SESSION_GUIDE_GUIDED_PREFIX`.
 
+### Fixed
+
+- `guide_title.py` refuses an empty session id (for example from a failed lookup) instead of acting on the current
+  session. Id prefixes resolve from worktree project folders too.
+
 ## [0.1.1] - 2026-10-28
 
 ### Added

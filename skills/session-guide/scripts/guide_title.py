@@ -53,14 +53,19 @@ def marker(session_id):
 
 
 def resolve_session(given):
-    sid = given or os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    """A full session id from `given` (an id or id prefix), or this session's own id when no id was passed at all.
+
+    An empty id (say, from a failed lookup) is an error, never this session. A prefix is looked up in every project
+    folder, worktree folders included, since a worker that ran EnterWorktree keeps its transcript there.
+    """
+    sid = (os.environ.get("CLAUDE_CODE_SESSION_ID", "") if given is None else given).strip()
     if not sid:
-        raise SystemExit("no session id: pass --session <id>")
+        raise SystemExit("empty session id" if given is not None else "no session id: pass one")
     if len(sid) == 36:
         return sid
     hits = {os.path.basename(p)[:-6] for p in glob.glob(os.path.join(config_dir(), "projects", "*", sid + "*.jsonl"))}
     if len(hits) != 1:
-        raise SystemExit("--session %s matches %d sessions; pass the full id" % (sid, len(hits)))
+        raise SystemExit("session %s matches %d sessions; pass the full id" % (sid, len(hits)))
     return hits.pop()
 
 
