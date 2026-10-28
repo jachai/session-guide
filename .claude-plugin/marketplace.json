@@ -1,0 +1,15 @@
+{
+  "name": "session-guide",
+  "description": "session-guide: one session that keeps your parallel Claude Code sessions, and you, on the same page",
+  "owner": {
+    "name": "Jonathan Achai",
+    "url": "https://github.com/jachai"
+  },
+  "plugins": [
+    {
+      "name": "session-guide",
+      "source": "./",
+      "description": "A guide session that tracks every stream in one ledger, routes worker decisions to you, and hands off cleanly"
+    }
+  ]
+}

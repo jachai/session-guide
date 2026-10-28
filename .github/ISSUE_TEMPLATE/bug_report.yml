@@ -1,0 +1,38 @@
+name: Bug report
+description: The guide did something the skill says it shouldn't, or peek.py broke
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Please don't paste real session names, prompts, paths, ledgers or transcripts. Redact them first.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What the guide (or a worker) did, and which rule in SKILL.md it broke.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: "`python3 skills/session-guide/scripts/peek.py --version`"
+  - type: input
+    id: claude
+    attributes:
+      label: "`claude --version`"
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installed as
+      options: [Claude Code plugin, install.sh skill, other]
+  - type: textarea
+    id: output
+    attributes:
+      label: peek.py output or ledger excerpt (redacted)
+      render: text

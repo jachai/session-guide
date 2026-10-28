@@ -1,0 +1,15 @@
+name: Feature request
+description: A rule, playbook or helper you'd like the guide to have
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: Describe the multi-session moment that went wrong or felt slow (made-up names are fine).
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you'd like
