@@ -20,7 +20,12 @@ GUIDED WORKER: you are managed by guide '<guide title>' [<id6>]. Until a guide s
    the guide named in your handoff.
 6. Never merge to the production branch or touch shared environments (deploys, test batteries) unless the guide says
    it's your turn.
+7. Your title starts with "(g) " while you are managed: it tells the user you don't need them. It stays through
+   renames, DONE and stand-down; `/session-guide leave` takes it off.
 ```
+
+The prefix comes from `scripts/guide_title.py guided <session id>`: the guide runs it for every MANAGED worker, and
+`/session-guide join` runs it on the joining session. `unguided <session id>` takes it off.
 
 ## Prompt suffix (for sessions the guide starts with `claude --bg`)
 

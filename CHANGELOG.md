@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-28
+
+### Added
+
+- Guided prefix. Every MANAGED session's title starts with "(g) " so you can tell at a glance which sessions don't
+  need you. `guide_title.py guided <id>` (run by `/session-guide join` and by the guide for sessions it starts or
+  classifies MANAGED) adds it through the same hook; `unguided <id>` (on `/session-guide leave`, or a reclassify to
+  WATCHED / IGNORED) takes it off. Never doubled, kept through renames and session-titles focus updates, never on a
+  guide or a retired guide. Override: `SESSION_GUIDE_GUIDED_PREFIX`.
+
 ## [0.1.1] - 2026-10-28
 
 ### Added

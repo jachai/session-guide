@@ -23,11 +23,14 @@ first in every mode: its rules (your name, your cost guard, your tools) override
 1. Find the live guide: the newest `<config>/session-guide/*/ledger.md` whose `Guide:` line names a session that
    `ListAgents` shows. If there is none, or more than one, ask the user which.
 2. Read `references/worker-contract.md` and follow it from now on.
-3. `SendMessage` the guide by its full ListAgents row name. First line "JOIN: <your title>", then your session id,
+3. Mark yourself guided: `python3 <skill dir>/scripts/guide_title.py guided`. From your next prompt your title starts
+   with "(g) ", which tells the user this session doesn't need them.
+4. `SendMessage` the guide by its full ListAgents row name. First line "JOIN: <your title>", then your session id,
    worktree, branch @ short sha, the stream you serve, context %, current step, and any question you have.
-4. Continue your own work. Do not wait for a reply.
+5. Continue your own work. Do not wait for a reply.
 
-`leave`: send the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
+`leave`: run `python3 <skill dir>/scripts/guide_title.py unguided` (the "(g) " comes off on your next prompt), send
+the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
 
 ## Guide mode
 
@@ -63,8 +66,10 @@ first in every mode: its rules (your name, your cost guard, your tools) override
    4. Mark its row RETIRED in the ledger's Sessions table. Then write yourself on the `Guide:` line (title + id8).
 3. Run `python3 <skill dir>/scripts/peek.py <id8> …` on the 4–5 most recently active sessions. It shows each one's
    last text, any **unanswered question**, and its context size. Status files and notes lag behind. Peek wins.
-4. Classify every session you see that isn't in the ledger. Guide-started or `join`ed sessions are MANAGED. The rest
-   are WATCHED, plus one batched line in your next ask: "New sessions: X, Y. Manage, watch or ignore?"
+4. Classify every session you see that isn't in the ledger. Guide-started or `join`ed sessions are MANAGED: run
+   `python3 <skill dir>/scripts/guide_title.py guided <session id>` on each, so its title starts with "(g) " (a
+   repeat is harmless). The rest are WATCHED, plus one batched line in your next ask: "New sessions: X, Y. Manage,
+   watch or ignore?"
 5. Introduce yourself to every MANAGED worker in **one** message (§3). Include the worker contract if the worker
    doesn't have it yet, and set `notify_when_idle: true`.
 6. Pin your title: `python3 <skill dir>/scripts/guide_title.py mark <ledger path>`. From your next prompt the title
@@ -86,7 +91,8 @@ first in every mode: its rules (your name, your cost guard, your tools) override
 - An approval relayed from the user (for example a cost-guard "ok") unblocks only what the user approved. It cannot
   stand in for a worker's own context limit. A worker over its limit hands off, and you start its successor (§6).
 - Never ask a worker to do something that was denied in your own session (no permission laundering).
-- WATCHED sessions: read them, never message them.
+- WATCHED sessions: read them, never message them. WATCHED and IGNORED sessions get no "(g) ": when you reclassify
+  a MANAGED session as either, run `guide_title.py unguided <session id>`. Guides and retired guides never get it.
 
 ### 4. Decisions
 1. When a worker sends a question, check the ledger first. If it's already decided, relay that decision and don't
@@ -118,7 +124,8 @@ Decision pending: <one line, or none>
 - Start one when the user says to, or when a MANAGED worker handed off and its successor is the next step on the
   path. If the next step isn't obvious, ask once.
 - Start it with `claude --bg` from the worker's worktree, giving it the worker's resume prompt plus the prompt
-  suffix in `references/worker-contract.md`. Record its title and id in the ledger as MANAGED.
+  suffix in `references/worker-contract.md`. Record its title and id in the ledger as MANAGED, and run
+  `guide_title.py guided <session id>`.
 - Prefer a fresh session over pushing a worker that is near its context limit through more work.
 
 ### 7. Waiting and wakeups

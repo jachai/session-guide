@@ -11,6 +11,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "skills", "session-guide", "scripts", "guide_title.py")
 GUIDE = "c0ffee12-3456-4789-8abc-def012345678"
+WORKER = "fa11ed00-1234-4567-89ab-cdef01234567"
 LEDGER = """# release-2026-10-27 — guide ledger
 Guide: 'release guide' [c0ffee12] since 10-27 09:00
 
@@ -45,13 +46,23 @@ class GuideTitleTest(unittest.TestCase):
         shutil.rmtree(self.cfg)
 
     def run_script(self, *args, stdin="", **extra_env):
-        env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_CODE_SESSION_ID", "SESSION_GUIDE_TITLE")}
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("CLAUDE_CODE_SESSION_ID", "SESSION_GUIDE_TITLE", "SESSION_GUIDE_GUIDED_PREFIX")}
         env.update(CLAUDE_CONFIG_DIR=self.cfg, **extra_env)
         return subprocess.run([sys.executable, SCRIPT] + list(args), input=stdin, capture_output=True, text=True,
                               env=env)
 
-    def hook(self, session_id=GUIDE, event="UserPromptSubmit"):
-        return self.run_script("hook", stdin=json.dumps({"session_id": session_id, "hook_event_name": event}))
+    def hook(self, session_id=GUIDE, event="UserPromptSubmit", title=None, **extra_env):
+        event_in = {"session_id": session_id, "hook_event_name": event}
+        if title is not None:
+            event_in["session_title"] = title
+        return self.run_script("hook", stdin=json.dumps(event_in), **extra_env)
+
+    def worker_title(self, title, event="UserPromptSubmit", **extra_env):
+        """The title the hook sets on WORKER, or None when it prints nothing."""
+        r = self.hook(WORKER, event, title, **extra_env)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        return json.loads(r.stdout)["hookSpecificOutput"]["sessionTitle"] if r.stdout else None
 
     def test_marked_session_gets_exact_title_with_counts(self):
         self.assertEqual(self.run_script("mark", self.ledger, "--session", GUIDE).returncode, 0)
@@ -131,6 +142,50 @@ class GuideTitleTest(unittest.TestCase):
         stdin = json.dumps({"session_id": GUIDE, "hook_event_name": "UserPromptSubmit"})
         r = self.run_script("hook", stdin=stdin, SESSION_GUIDE_RETIRED_TITLE="old guide")
         self.assertEqual(json.loads(r.stdout)["hookSpecificOutput"]["sessionTitle"], "old guide")
+
+
+    def test_guided_worker_gets_the_prefix_on_its_own_title(self):
+        self.assertEqual(self.run_script("guided", WORKER).returncode, 0)
+        title = "housing stage 0 PR A gate · Running e2e2 rows"
+        for event in ("UserPromptSubmit", "SessionStart"):
+            self.assertEqual(self.worker_title(title, event), "(g) " + title)
+        self.assertIsNone(self.worker_title(""))  # no title yet: nothing to prefix
+
+    def test_guided_prefix_is_idempotent(self):
+        self.run_script("guided", WORKER)
+        self.run_script("guided", WORKER)
+        self.assertIsNone(self.worker_title("(g) billing lead · Waiting on CI"))  # focus updates keep it: no output
+        self.assertEqual(self.worker_title("(g) (g) billing lead"), "(g) billing lead")
+        self.assertEqual(self.worker_title("(g)billing lead"), "(g) billing lead")
+
+    def test_guided_prefix_can_be_overridden(self):
+        self.run_script("guided", WORKER)
+        self.assertEqual(self.worker_title("billing lead", SESSION_GUIDE_GUIDED_PREFIX="[g] "), "[g] billing lead")
+        self.assertIsNone(self.worker_title("[g] billing lead", SESSION_GUIDE_GUIDED_PREFIX="[g] "))
+
+    def test_unguided_takes_the_prefix_off_then_drops_the_marker(self):
+        self.run_script("guided", WORKER)
+        self.assertEqual(self.run_script("unguided", WORKER).returncode, 0)
+        self.assertEqual(self.worker_title("(g) billing lead · Waiting on CI"), "billing lead · Waiting on CI")
+        self.assertIsNone(self.worker_title("billing lead · Waiting on CI"))
+        self.assertFalse(os.path.exists(os.path.join(self.cfg, "session-guide", "guides", WORKER)))
+        self.assertIsNone(self.worker_title("(g) renamed by hand"))  # unmanaged now: the hook leaves it alone
+
+    def test_guides_and_retired_guides_never_get_the_prefix(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        self.assertNotEqual(self.run_script("guided", GUIDE).returncode, 0)
+        self.assertEqual(json.loads(self.hook(title="anything").stdout)["hookSpecificOutput"]["sessionTitle"],
+                         "🟥🟥 Sessions Manager (2 of 3) 🟥🟥")
+        self.run_script("retire", GUIDE)
+        self.assertNotEqual(self.run_script("guided", GUIDE).returncode, 0)
+        self.assertEqual(self.run_script("unguided", GUIDE).returncode, 0)  # left as it is
+        self.assertIn("(retired)", self.hook(title="anything").stdout)
+        self.assertNotIn("(g)", self.hook(title="anything").stdout)
+
+    def test_a_guided_worker_that_becomes_the_guide_loses_the_prefix(self):
+        self.run_script("guided", WORKER)
+        self.assertEqual(self.run_script("mark", self.ledger, "--session", WORKER).returncode, 0)
+        self.assertEqual(self.worker_title("(g) billing lead"), "🟥🟥 Sessions Manager (2 of 3) 🟥🟥")
 
 
 if __name__ == "__main__":

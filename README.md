@@ -90,7 +90,7 @@ leave` opts it back out. Sessions the guide starts itself are managed automatica
 
 | Level | How a session gets it | What the guide does |
 |---|---|---|
-| **MANAGED** | `/session-guide join`, or started by the guide | Sends the contract, relays rulings and approvals, takes its questions |
+| **MANAGED** | `/session-guide join`, or started by the guide | Sends the contract, relays rulings and approvals, takes its questions. Its title starts with "(g) " |
 | **WATCHED** | Any other session the guide sees (the default) | Reads it for status and never messages it. Asks you once: manage, watch or ignore? |
 | **IGNORED** | You said so | Leaves it alone |
 | **RETIRED** | A guide that handed over to a new one | Nothing: green title, state done |
@@ -115,10 +115,20 @@ When a new guide takes over, the old one is retired with `guide_title.py retire 
 `🟩🟩 Sessions Manager (retired) 🟩🟩` and never goes red again, and it ends with a `result:` line so its state shows
 done rather than waiting on you.
 
+### Guided workers: "(g) "
+
+Every MANAGED session's title starts with `(g) `, for example `(g) billing export lead · Waiting on CI`. Those are
+the sessions you don't need to go into; a session without it may need you. `/session-guide join` and the guide run
+`guide_title.py guided <id>`, and the same hook puts the prefix in front of the session's own title. It never doubles
+up, it survives renames and focus updates, and it stays through DONE. `guide_title.py unguided <id>` (on
+`/session-guide leave`, or when the guide reclassifies a session WATCHED or IGNORED) takes it off. The guide and a
+retired guide never get it. Override the prefix with `SESSION_GUIDE_GUIDED_PREFIX`.
+
 - The plugin install registers the hook for you. A plain-skill install prints the `settings.json` snippet to add
   ([examples/settings-snippet.json](examples/settings-snippet.json)).
 - If you use [session-titles](https://github.com/jachai/session-titles), the guide also runs
-  `session-titles off <its id>` so the two hooks don't take turns.
+  `session-titles off <its id>` so the two hooks don't take turns. Guided workers keep session-titles on: it reads the
+  prefixed title as a rename and keeps `(g) ` in the origin from then on.
 - To use your own format, set `SESSION_GUIDE_TITLE`, for example `"guide {managed}/{active}"`, in the `env` block
   of `settings.json`. Avoid `*`, because some title tools strip markdown, and keep it under ~35 characters, because the
   agents view and claude-top cut long names.

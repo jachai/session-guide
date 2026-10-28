@@ -45,6 +45,16 @@ final message ending in a `result:` line, which turns that session's state to do
 checks the state, and marks the old guide's row RETIRED in the ledger. An outgoing guide that sees its successor
 introduce itself retires itself the same way.
 
+## Guided prefix
+
+A MANAGED worker's title starts with "(g) ", so the user can see which sessions don't need them. The marker is a
+file next to the guide's own (`guides/<session id>`, holding `guided`), written by `guide_title.py guided`. On each
+prompt the hook reads the session's current title and, when the prefix is missing, sets the same title with it in
+front. When the prefix is already there it prints nothing, so a titling hook's focus update goes through untouched;
+session-titles treats the one prefixed title as a rename and keeps "(g) " in its origin. `unguided` flips the marker
+to `unguided`: the hook strips the prefix on the next prompt, then deletes the marker. Guide and retired markers hold
+a ledger path or `retired`, so they never get the prefix.
+
 ## Addressing sessions
 
 Session titles change when sessions rename themselves. The guide replies to a worker's `from=` address when it has
