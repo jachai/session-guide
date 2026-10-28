@@ -24,5 +24,9 @@ All notable changes to this project are documented here. The format is based on
 - `local.md` overrides and a `playbooks/` folder under `~/.claude/session-guide/`.
 - `peek.py` (stdlib only, Python 3.9+): a session's title, context size, last reply, unanswered questions and last
   cross-session message.
+- A pinned guide title, "🟥🟥 Sessions Manager (X of Y) 🟥🟥" with live MANAGED / WATCHED counts from the ledger:
+  `guide_title.py mark|unmark|hook`, a `UserPromptSubmit` + `SessionStart` plugin hook that restores it after any
+  rename, a `settings.json` snippet that `install.sh` prints for plain-skill installs, and a `SESSION_GUIDE_TITLE`
+  override.
 - A unittest suite on temp config dirs, CI on Ubuntu and macOS with Python 3.9 and 3.14, `scripts/demo.py`, issue
   templates, and a tag-driven release workflow.

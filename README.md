@@ -97,6 +97,28 @@ leave` opts it back out. Sessions the guide starts itself are managed automatica
 Other commands: `/session-guide handoff` makes the guide hand off now. Say "take over as guide, ledger: <path>" in a
 fresh session to continue.
 
+## Pinned title
+
+The guide keeps one title, so you can always find it in the agents view:
+
+```
+🟥🟥 Sessions Manager (3 of 6) 🟥🟥
+```
+
+3 is the MANAGED sessions in the ledger and 6 is MANAGED + WATCHED. At start the guide runs
+`scripts/guide_title.py mark <ledger>`. A `UserPromptSubmit` and `SessionStart` hook then re-applies the title on
+every prompt, with fresh counts, so a rename (by hand or by another titling hook) lasts one turn at most. On handoff
+the guide runs `guide_title.py unmark`. Every other session is left alone: the hook prints nothing for it, and it
+prints nothing on any error too.
+
+- The plugin install registers the hook for you. A plain-skill install prints the `settings.json` snippet to add
+  ([examples/settings-snippet.json](examples/settings-snippet.json)).
+- If you use [session-titles](https://github.com/jachai/session-titles), the guide also runs
+  `session-titles off <its id>` so the two hooks don't take turns.
+- To use your own format, set `SESSION_GUIDE_TITLE`, for example `"guide {managed}/{active}"`, in the `env` block
+  of `settings.json`. Avoid `*`, because some title tools strip markdown, and keep it under ~35 characters, because the
+  agents view and claude-top cut long names.
+
 ## What the guide will and won't do
 
 The guide is **advisory**. It never branches, commits, pushes, merges or edits code: merges stay with you, and

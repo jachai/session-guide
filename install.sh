@@ -23,6 +23,9 @@ case "${1:-}" in
     fi
     echo "installed the skill at $DEST"
     echo "in Claude Code: /session-guide makes a session the guide; /session-guide join opts a worker in"
+    echo
+    echo "to pin the guide's title, add these hooks to $CONFIG/settings.json (merge with any hooks you have):"
+    sed "s#\$HOME/.claude/skills/session-guide#$DEST#" "$ROOT/examples/settings-snippet.json"
     ;;
   *)
     echo "usage: $0 [--link | --uninstall]" >&2

@@ -59,13 +59,19 @@ first in every mode: its rules (your name, your cost guard, your tools) override
    are WATCHED, plus one batched line in your next ask: "New sessions: X, Y. Manage, watch or ignore?"
 5. Introduce yourself to every MANAGED worker in **one** message (§3). Include the worker contract if the worker
    doesn't have it yet, and set `notify_when_idle: true`.
-6. Reply to the user in the status shape (§5).
-7. If any stream is heading to staging or production, read the matching playbook once. That is your own
+6. Pin your title: `python3 <skill dir>/scripts/guide_title.py mark <ledger path>`. From your next prompt the title
+   hook keeps it at "🟥🟥 Sessions Manager (X of Y) 🟥🟥" (X = MANAGED, Y = MANAGED + WATCHED rows) and undoes any
+   rename. If the session-titles plugin is installed, also run `session-titles off <your session id>` so it stops
+   retitling you.
+7. Reply to the user in the status shape (§5).
+8. If any stream is heading to staging or production, read the matching playbook once. That is your own
    `<config>/session-guide/playbooks/*.md` if one fits, else `references/release-playbook.md`.
 
 ### 3. Messaging workers
 - Address a worker by the `from=` address of its last message to you, which stays stable across renames. Otherwise
   use its **full current ListAgents row name**: titles change on rename, so re-read ListAgents before sending.
+  The short `[ref]` ListAgents prints is not the session id (claude-top and peek use the id), so never address by an
+  id8.
 - **One batched message per worker per step.** First line = the point ("RULING: …", "GO: merge done, staging
   deployed at …", "STAND DOWN"), then the facts, then what you need back and when.
 - Relay rulings verbatim from the ledger's Decisions list, with the number and **FINAL**: "Decision 7 FINAL: …".
@@ -119,7 +125,8 @@ Decision pending: <one line, or none>
 
 ### 8. Handoff (at ~120k context, or when the user asks)
 1. Make the ledger current: every section, not just the log.
-2. Change the ledger's `Guide:` line to "HANDING OFF to next guide".
+2. Change the ledger's `Guide:` line to "HANDING OFF to next guide", and unpin your title:
+   `python3 <skill dir>/scripts/guide_title.py unmark`. Do the same when you stand down for another guide (§2).
 3. Cancel wakeups. Tell each MANAGED worker in one line: "Guide changing; keep reporting in your final message until
    the new guide introduces itself."
 4. Give the user the paste-ready prompt: `/session-guide` followed by "Take over as guide. Ledger: <path>." Name the
