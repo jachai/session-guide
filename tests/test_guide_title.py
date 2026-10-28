@@ -117,6 +117,21 @@ class GuideTitleTest(unittest.TestCase):
         self.assertEqual(self.run_script("mark", self.ledger, "--session", GUIDE[:8]).returncode, 0)
         self.assertIn("(2 of 3)", self.hook().stdout)
 
+    def test_retired_guide_gets_the_green_title_and_never_red_again(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        self.assertEqual(self.run_script("retire", GUIDE).returncode, 0)
+        for event in ("UserPromptSubmit", "SessionStart"):
+            self.assertEqual(json.loads(self.hook(event=event).stdout), {"hookSpecificOutput": {
+                "hookEventName": event, "sessionTitle": "🟩🟩 Sessions Manager (retired) 🟩🟩"}})
+        self.assertNotEqual(self.run_script("mark", self.ledger, "--session", GUIDE).returncode, 0)
+        self.assertIn("(retired)", self.hook().stdout)
+
+    def test_retire_works_on_an_unmarked_session_and_can_be_overridden(self):
+        self.assertEqual(self.run_script("retire", GUIDE).returncode, 0)
+        stdin = json.dumps({"session_id": GUIDE, "hook_event_name": "UserPromptSubmit"})
+        r = self.run_script("hook", stdin=stdin, SESSION_GUIDE_RETIRED_TITLE="old guide")
+        self.assertEqual(json.loads(r.stdout)["hookSpecificOutput"]["sessionTitle"], "old guide")
+
 
 if __name__ == "__main__":
     unittest.main()

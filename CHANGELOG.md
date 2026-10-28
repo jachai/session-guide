@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-28
+
+### Added
+
+- Retired guides. When a guide takes over (or the user picks one of two guides), the old one is retired:
+  `guide_title.py retire <id>` turns its title to "🟩🟩 Sessions Manager (retired) 🟩🟩" (override:
+  `SESSION_GUIDE_RETIRED_TITLE`), and the hook never turns a retired id red again. The new guide asks it for a final
+  message ending in a `result:` line so its state turns done, checks that, and marks it RETIRED in the ledger.
+- An outgoing guide retires itself once its successor has introduced itself, instead of ending on a question.
+
 ## [0.1.0] - 2026-10-28
 
 ### Added

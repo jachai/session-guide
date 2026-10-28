@@ -41,7 +41,7 @@ had a rule for it:
 | You answer a worker one way and the guide another. The worker builds the wrong one. | Workers never ask you directly. Every decision goes through the guide, is logged as **Decision N FINAL**, and is relayed verbatim. If you do answer a worker directly, the guide checks that answer against earlier decisions first. |
 | Each fresh guide re-reads a growing pile of notes and gives advice from a stale picture. | One **ledger** per effort, rewritten in place and kept under ~6 KB. A new guide reads it and nothing older. |
 | Status files lag. You get sent to answer a question you already answered. | Before every "what's next", `peek.py` reads the workers' own transcripts: last reply, unanswered questions, context size. |
-| Two guides are running and give you conflicting advice. | Sole-guide check at start: the guide asks you which one stays and tells the other to stand down. |
+| Two guides are running and give you conflicting advice. | Sole-guide check at start: the guide asks you which one stays and retires the other (green title, state done). |
 | "be0f7c41 is waiting on you." Which one is that? | Sessions are always named by title, with the id in brackets. |
 | The guide sits idle while a deploy finishes, or wakes every 10 minutes all night. | +5 min wakeups for imminent events and +10 for long runs. When only you can unblock things, it backs off to +30 and +60, then stops. |
 | A guide runs out of context mid-relay. | It hands off at ~120k: ledger current, wakeups cancelled, a one-line prompt for the next guide. |
@@ -93,6 +93,7 @@ leave` opts it back out. Sessions the guide starts itself are managed automatica
 | **MANAGED** | `/session-guide join`, or started by the guide | Sends the contract, relays rulings and approvals, takes its questions |
 | **WATCHED** | Any other session the guide sees (the default) | Reads it for status and never messages it. Asks you once: manage, watch or ignore? |
 | **IGNORED** | You said so | Leaves it alone |
+| **RETIRED** | A guide that handed over to a new one | Nothing: green title, state done |
 
 Other commands: `/session-guide handoff` makes the guide hand off now. Say "take over as guide, ledger: <path>" in a
 fresh session to continue.
@@ -107,9 +108,12 @@ The guide keeps one title, so you can always find it in the agents view:
 
 3 is the MANAGED sessions in the ledger and 6 is MANAGED + WATCHED. At start the guide runs
 `scripts/guide_title.py mark <ledger>`. A `UserPromptSubmit` and `SessionStart` hook then re-applies the title on
-every prompt, with fresh counts, so a rename (by hand or by another titling hook) lasts one turn at most. On handoff
-the guide runs `guide_title.py unmark`. Every other session is left alone: the hook prints nothing for it, and it
-prints nothing on any error too.
+every prompt, with fresh counts, so a rename (by hand or by another titling hook) lasts one turn at most. Every other
+session is left alone: the hook prints nothing for it, and it prints nothing on any error too.
+
+When a new guide takes over, the old one is retired with `guide_title.py retire <id>`. Its title turns to
+`🟩🟩 Sessions Manager (retired) 🟩🟩` and never goes red again, and it ends with a `result:` line so its state shows
+done rather than waiting on you.
 
 - The plugin install registers the hook for you. A plain-skill install prints the `settings.json` snippet to add
   ([examples/settings-snippet.json](examples/settings-snippet.json)).

@@ -51,8 +51,16 @@ first in every mode: its rules (your name, your cost guard, your tools) override
 1. Create or open `<config>/session-guide/<slug>/ledger.md` (template: `references/ledger-template.md`). The slug is
    a short kebab-case name for the effort. When taking over, the ledger already exists: read it, and nothing older.
 2. **Sole guide.** List sessions (`claude-top --once -n 15`, or `ListAgents`). If another live session is titled like
-   a guide or is named on the ledger's `Guide:` line, ask the user which one stays. Tell the other one, by
-   SendMessage, to cancel its wakeups and stand down. Then write yourself on the `Guide:` line (title + id8).
+   a guide or is named on the ledger's `Guide:` line, ask the user which one stays. Then **retire** the other one
+   (or, on a takeover, the guide you replace):
+   1. `python3 <skill dir>/scripts/guide_title.py retire <old session id>`. Its title turns to
+      "🟩🟩 Sessions Manager (retired) 🟩🟩" on its next turn, and the title hook never turns it red again.
+   2. SendMessage it: "RETIRE: you are no longer the guide; cancel your wakeups, use no tools, and reply with exactly:
+      <one line on what you handed over> / result: <slug> guide retired and handed over to [<your id6>]". A
+      session's job state only turns done when its own final message carries a `result:` line.
+   3. Check that its state now shows done (`claude-top --once`, STATE column, or the agents view). If it doesn't,
+      list it under **Needs you now**.
+   4. Mark its row RETIRED in the ledger's Sessions table. Then write yourself on the `Guide:` line (title + id8).
 3. Run `python3 <skill dir>/scripts/peek.py <id8> …` on the 4–5 most recently active sessions. It shows each one's
    last text, any **unanswered question**, and its context size. Status files and notes lag behind. Peek wins.
 4. Classify every session you see that isn't in the ledger. Guide-started or `join`ed sessions are MANAGED. The rest
@@ -125,12 +133,14 @@ Decision pending: <one line, or none>
 
 ### 8. Handoff (at ~120k context, or when the user asks)
 1. Make the ledger current: every section, not just the log.
-2. Change the ledger's `Guide:` line to "HANDING OFF to next guide", and unpin your title:
-   `python3 <skill dir>/scripts/guide_title.py unmark`. Do the same when you stand down for another guide (§2).
+2. Change the ledger's `Guide:` line to "HANDING OFF to next guide".
 3. Cancel wakeups. Tell each MANAGED worker in one line: "Guide changing; keep reporting in your final message until
    the new guide introduces itself."
 4. Give the user the paste-ready prompt: `/session-guide` followed by "Take over as guide. Ledger: <path>." Name the
    one next action. If the user asks, start the next guide yourself with `claude --bg`.
+5. Once the successor has introduced itself (or sent you RETIRE), retire yourself instead of ending on a question:
+   `python3 <skill dir>/scripts/guide_title.py retire`, then end with a final message whose last line is
+   `result: <slug> guide retired and handed over to [<new id6>]`. Your title turns green and your state turns done.
 
 ### 9. Notes and skills
 - If you keep memory notes, keep ONE pointer per effort ("<slug> guide ledger: <path>"), updated in place and never

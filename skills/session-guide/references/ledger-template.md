@@ -26,6 +26,7 @@ Updated: <date HH:MM>   Usage: <plan usage, if you track it>
 | billing export lead [3fa9c1] | MANAGED | billing lead | worktrees/billing @a1b2c3d | <from= address> | 140k | 12:35 |
 | design spike [b5c6d7] | WATCHED | — | — | — | 90k | 12:02 |
 | personal notes [e8f9a0] | IGNORED | off path | | | | |
+| release guide [c0ffee] | RETIRED | previous guide, handed over 10-27 09:00 | — | — | 121k | 09:00 |
 
 ## Decisions (FINAL unless struck)
 1. (10-26 10:10, user in guide) Test battery: only NEW failures block a prod merge; older ones go to the PR body and a ticket.

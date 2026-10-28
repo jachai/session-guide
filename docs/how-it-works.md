@@ -39,6 +39,12 @@ Workers hand off near their context limit with a resume prompt. The guide starts
 MANAGED. The guide itself hands off at ~120k: because the ledger is current, the next guide needs one line,
 `/session-guide` + "Take over as guide. Ledger: <path>."
 
+The guide it replaces is **retired**, not left hanging. The new guide runs `guide_title.py retire <old id>`, so the old
+title turns to "🟩🟩 Sessions Manager (retired) 🟩🟩" and never goes red again. Then it asks the old guide for a
+final message ending in a `result:` line, which turns that session's state to done instead of "needs input". It
+checks the state, and marks the old guide's row RETIRED in the ledger. An outgoing guide that sees its successor
+introduce itself retires itself the same way.
+
 ## Addressing sessions
 
 Session titles change when sessions rename themselves. The guide replies to a worker's `from=` address when it has
