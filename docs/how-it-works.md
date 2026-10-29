@@ -23,7 +23,10 @@ The guide never builds and never merges. Workers build. You decide and merge.
 3. **Read CI**: PR checks, workflow runs, deploy jobs. One read per wake, never a watch loop.
 4. **Reconcile.** Answer workers' questions from the Decisions list where possible. Batch the rest into one
    interview with you. Write the answers as numbered FINAL decisions and relay them, one message per worker.
-5. **Reply** to you in the "Needs you now / Streams / Running on its own / Decision pending" shape.
+   Every loose end a report raised ("not fixed", "out of scope", "FYI") becomes an Open items row with an owner;
+   rows without one go into the same interview as a recommended owner + action, at most 4 at a time.
+5. **Reply** to you in the "Needs you now / Streams / Proposed actions / Running on its own / Decision pending"
+   shape. Every stream line ends with its next action and owner; every proposed action is a yes/no.
 6. **Update the ledger** in place and schedule the next wake: +5 for imminent events, +10 for long runs, backing off
    when only you can unblock things.
 

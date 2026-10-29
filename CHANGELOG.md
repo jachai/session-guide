@@ -5,6 +5,24 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-29
+
+### Added
+
+- Open items have owners. The ledger's Open items section is a table, Item | Owner | Next action | Status. The
+  owner is an existing session (title [id6]), "new session (proposed)", or the user; a row with no owner yet says
+  ASK. Nothing is parked as "whenever you want" or FYI.
+- After every worker report or handoff the guide re-reads it for loose ends ("not fixed", "out of scope", "FYI") and
+  adds each one to the table. Workers list what they found but did not fix in their step reports.
+- Every wake and every status reply puts the rows marked ASK, or proposing a new session not yet started, into the
+  next ask: at most 4, each a recommended owner + action, with a worked example for money or business rules.
+- A "Proposed actions" block in the status reply: actions on active sessions or new sessions to start, each
+  answerable with yes or no.
+
+### Changed
+
+- Every "Streams" line in the status reply ends with "→ next: <action> (owner)".
+
 ## [0.1.3] - 2026-10-29
 
 ### Added

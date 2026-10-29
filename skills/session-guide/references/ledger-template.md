@@ -6,6 +6,11 @@ facts. Aim for under 6 KB: a fresh guide reads this file and nothing older. Writ
 that MANAGED workers carry, or the "✅ " of closed ones: the Level column already says so. `New:` is the count of
 sessions active in the last 12 h with no Sessions row, from the guide's last sweep; the guide's title shows it.
 
+**Open items** is a table, not a list. Every row has an Owner: an existing session (title [id6]), "new session
+(proposed)", or the user. A row with no owner yet says ASK in the Owner column. Next action is one concrete step
+for that owner. Status is ASK <time> (in the user's next ask), waiting (with the next check), or DONE (how verified;
+delete DONE rows after a day). Nothing sits here as "whenever you want".
+
 ```markdown
 # <slug> — guide ledger
 Guide: '<guide title>' [id8] since <date HH:MM>          (or: HANDING OFF to next guide)
@@ -41,8 +46,13 @@ New: <n> (untracked sessions active <12h, sweep HH:MM)
 ## Waiting on the user
 - Merge #142 — 'billing export lead' [3fa9c1] — asked 12:40, reminded no
 
-## Open items (not blockers)
-- Skill-edit proposal from the billing lead (awaiting yes)
+## Open items
+| Item | Owner | Next action | Status |
+|---|---|---|---|
+| Rounding off by 0.01 on split invoices (billing lead report: "not fixed, out of scope") | new session (proposed) | start 'billing rounding fix' from develop | ASK 13:05 |
+| Skill-edit proposal from the billing lead | the user | say yes or no to the edit | ASK 12:50 |
+| Search reindex read-only prod audit | 'search reindex lead' [d4e5f6] | run the audit after traffic dips | waiting, next check ~15:00 |
+| Stale feature flag in config | ASK | — | ASK 13:05 |
 
 ## Log (last ~15)
 - 10-27 11:51 battery re-run 64/66; rows 8 and 68 fail → relayed to the billing lead.

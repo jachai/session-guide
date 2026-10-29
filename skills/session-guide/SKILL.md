@@ -112,13 +112,31 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
    contradicts an earlier one, ask the user which stands **before** anyone builds on it. This rule exists to prevent
    two conflicting rulings being in flight at once.
 
+**Open items.** The guide keeps interviewing until every open item has an owner and a next action. It never parks an
+item as "whenever you want" or FYI.
+1. **After every worker report or handoff**, re-read it for loose ends: findings marked "not fixed", "out of scope",
+   "follow-up", "FYI", a skipped step, a failing test left alone. Add each one to the ledger's Open items table
+   with an owner, or with ASK in the Owner column when you don't know the owner yet. Every row has an owner or ASK.
+2. **Owners** are an existing session (title [id6]) when the item sits in its stream and it has context to spare, "new
+   session (proposed)" when nobody fits or the fitting worker is near its limit, or the user for what only the user
+   can do (a merge, a dashboard, a person to ask).
+3. **Every ask** (and so every wake and every status reply that leads to one) carries the rows whose Owner is ASK
+   or "new session (proposed)" not yet started: at most 4 per ask, oldest first, each phrased as your recommended
+   owner + action ("Start 'billing rounding fix' from develop to fix the 0.01 rounding on split invoices? (yes
+   recommended)"). An item about money or a business rule carries a worked numeric example. Items past the 4 wait
+   for the next ask; say how many are left.
+4. On the answer: write the owner into the row, relay the action to that session (or start the new session, §6), and
+   log it. A "no" removes the row or makes the user its owner, as the user says.
+
 ### 5. Status reply ("what's next", "where do we stand", and every wake that changes something)
 ```
 **Needs you now**
 1. <action only the user can do> — <session title [id6]> / PR link / exact `!` command
 2. …
 **Streams**
-- <stream>: <where it is> → next: <step> (owner: <session title> or you)
+- <stream>: <where it is> → next: <action> (<session title [id6]> or you)
+**Proposed actions**
+1. <action> on <session title [id6]>, or: start a new session '<title>' for <item> — yes/no?
 **Running on its own**
 - <what>, next check ~HH:MM
 Decision pending: <one line, or none>
@@ -126,10 +144,14 @@ Guide context: <N>k (hand off at 120k)
 ```
 - "Needs you now" lists only the user's actions, most urgent first. A merge comes with its PR link and what you
   checked (checks green, mergeable, deploy queue clear).
+- Every Streams line ends with "→ next: <action> (owner)". A stream with no next action is DONE or gets one.
+- "Proposed actions" lists the actions you suggest on active sessions and the new sessions you suggest starting,
+  each answerable with a yes or a no in your next ask (§4, Open items). Nothing in the reply is a passive list:
+  every line is either the user's action, a stream's next action with its owner, or a proposed action.
 - Mark something DONE only once it is verified (deploy job green, or the worker's evidence), and say how.
 - The last line goes in every status reply, read from your own row in `claude-top --once`
   (CTX) or `peek.py <your id8>`. At 120k or more, hand off in this same turn (§8). Don't start another wake cycle.
-- Then update the ledger (Streams, Waiting on the user, and a log line).
+- Then update the ledger (Streams, Open items, Waiting on the user, and a log line).
 
 ### 6. Starting and closing worker sessions
 - Start one when the user says to, or when a MANAGED worker handed off and its successor is the next step on the
@@ -155,14 +177,17 @@ Guide context: <N>k (hand off at 120k)
   it), and put all of them in ONE line of your next ask, each with your recommendation: "New sessions: 'X' [id6]
   (manage: it is building the billing fix), 'Y' [id6] (ignore: personal notes). Manage, watch or ignore?" Ask about
   a session once; it stays counted in `New:` until the user answers, then it gets a row at the level they chose.
+- **Open items on every wake**: re-check the reports and handoffs that arrived since the last wake for new items
+  (§4, Open items), then put the rows still marked ASK or "new session (proposed)" into your next ask, at most 4,
+  next to the new-sessions line.
 - For an imminent event (the user's merge, a deploy job, CI finishing), schedule a wakeup in +5 min. For a long
   run (a full CI run, a test battery, a helper lane), use +10 min. Subscribe with `notify_when_idle` too: the notice
   is a hint, not a guarantee.
 - When only the user can unblock things: remind once, then wait +30 and +60 min. After two hourly wakes that found
   nothing to do, stop scheduling until the user speaks.
 - Keep the wake prompt short and rebuild it from the ledger each time: "Guide wake: read ledger <path>; sweep
-  `claude-top --once -n 30` for new sessions; peek <ids>; check <PRs/runs>; advise with your context size, or
-  reschedule." Don't let it accumulate history.
+  `claude-top --once -n 30` for new sessions; peek <ids>; check <PRs/runs>; owner-less open items into the ask;
+  advise with your context size, or reschedule." Don't let it accumulate history.
 - Never poll with `sleep` or `--watch`. One CI read per wake.
 
 ### 8. Handoff (at 120k context, or when the user asks)

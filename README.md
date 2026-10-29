@@ -21,9 +21,14 @@ A typical answer when you ask the guide "what's next?":
 2. 'search reindex worker' [b5c6d7]: one refund rule to decide (below)
 
 **Streams**
-- Billing export: develop copy green → next: your merge, staging gate (owner: 'billing export lead' [3fa9c1])
-- Search reindex: on staging → next: backfill after the refund rule
+- Billing export: develop copy green → next: your merge, then the staging gate ('billing export lead' [3fa9c1])
+- Search reindex: on staging → next: backfill after the refund rule ('search reindex worker' [b5c6d7])
 - Docs refresh: DONE (deploy job green 11:47Z)
+
+**Proposed actions**
+1. Start a new session 'billing rounding fix' for the 0.01 rounding on split invoices the billing lead left
+   out of scope: yes/no?
+2. 'search reindex worker' [b5c6d7] runs the read-only prod audit after the backfill: yes/no?
 
 **Running on its own**
 - billing CI on main, next check ~14:20
@@ -45,6 +50,7 @@ had a rule for it:
 | "be0f7c41 is waiting on you." Which one is that? | Sessions are always named by title, with the id in brackets. |
 | The guide sits idle while a deploy finishes, or wakes every 10 minutes all night. | +5 min wakeups for imminent events and +10 for long runs. When only you can unblock things, it backs off to +30 and +60, then stops. |
 | A guide runs out of context mid-relay. | It prints its own context size in every status reply and hands off at 120k: ledger current, wakeups cancelled, a one-line prompt for the next guide. |
+| A worker's report says "not fixed, out of scope". Nobody picks it up, and the guide lists it as "open, whenever you want". | After every report the guide adds each loose end to an Open items table with an owner: a session, a new session it proposes, or you. Owner-less items go into the next interview, at most 4 at a time, each as a recommended owner + action you answer yes or no. |
 | New sessions pile up unclassified, and finished ones sit "waiting" forever. | Every wake sweeps sessions active in the last 12 h and asks you once, in one line, whether to manage, watch or ignore each new one. Finished or obsolete workers are closed: ✅ title, `result:` line, state done, or a `! claude stop` for you when they are stuck. |
 
 ## Install
@@ -157,7 +163,8 @@ Browser checks, test batteries on shared environments, and database and log chec
 ## The ledger
 
 `~/.claude/session-guide/<slug>/ledger.md` holds Streams, Order/gates, Sessions, Decisions (numbered, FINAL unless
-struck), Waiting on you, Open items, and a 15-line log. See the
+struck), Waiting on you, Open items (a table: Item | Owner | Next action | Status, where every row has an owner or
+ASK), and a 15-line log. See the
 [template](skills/session-guide/references/ledger-template.md). It's plain Markdown, so you can read and edit it
 yourself.
 
