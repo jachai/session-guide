@@ -3,12 +3,14 @@
 Path: `<config>/session-guide/<slug>/ledger.md`. Rewrite sections **in place** so they always describe *now*.
 Only `## Log` is append-only, and it keeps the last ~15 lines. Trim older ones; the Decisions list keeps the durable
 facts. Aim for under 6 KB: a fresh guide reads this file and nothing older. Write titles without the "(g) " prefix
-that MANAGED workers carry: the Level column already says so.
+that MANAGED workers carry, or the "✅ " of closed ones: the Level column already says so. `New:` is the count of
+sessions active in the last 12 h with no Sessions row, from the guide's last sweep; the guide's title shows it.
 
 ```markdown
 # <slug> — guide ledger
 Guide: '<guide title>' [id8] since <date HH:MM>          (or: HANDING OFF to next guide)
 Updated: <date HH:MM>   Usage: <plan usage, if you track it>
+New: <n> (untracked sessions active <12h, sweep HH:MM)
 
 ## Streams
 | Stream | Where now | Next step | Owner | Blocked on |
@@ -27,6 +29,7 @@ Updated: <date HH:MM>   Usage: <plan usage, if you track it>
 | billing export lead [3fa9c1] | MANAGED | billing lead | worktrees/billing @a1b2c3d | <from= address> | 140k | 12:35 |
 | design spike [b5c6d7] | WATCHED | — | — | — | 90k | 12:02 |
 | personal notes [e8f9a0] | IGNORED | off path | | | | |
+| search reindex lead [d4e5f6] | DONE | closed 10-27 11:50, result line in | — | — | 160k | 11:50 |
 | release guide [c0ffee] | RETIRED | previous guide, handed over 10-27 09:00 | — | — | 121k | 09:00 |
 
 ## Decisions (FINAL unless struck)

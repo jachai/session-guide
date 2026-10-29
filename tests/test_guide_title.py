@@ -12,6 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "skills", "session-guide", "scripts", "guide_title.py")
 GUIDE = "c0ffee12-3456-4789-8abc-def012345678"
 WORKER = "fa11ed00-1234-4567-89ab-cdef01234567"
+TITLE = "🟥🟥 Sessions Manager (2 managed · 1 watched · 0 new) 🟥🟥"
 LEDGER = """# release-2026-10-27 — guide ledger
 Guide: 'release guide' [c0ffee12] since 10-27 09:00
 
@@ -47,7 +48,8 @@ class GuideTitleTest(unittest.TestCase):
 
     def run_script(self, *args, stdin="", **extra_env):
         env = {k: v for k, v in os.environ.items()
-               if k not in ("CLAUDE_CODE_SESSION_ID", "SESSION_GUIDE_TITLE", "SESSION_GUIDE_GUIDED_PREFIX")}
+               if k not in ("CLAUDE_CODE_SESSION_ID", "SESSION_GUIDE_TITLE", "SESSION_GUIDE_GUIDED_PREFIX",
+                            "SESSION_GUIDE_DONE_PREFIX")}
         env.update(CLAUDE_CONFIG_DIR=self.cfg, **extra_env)
         return subprocess.run([sys.executable, SCRIPT] + list(args), input=stdin, capture_output=True, text=True,
                               env=env)
@@ -57,6 +59,10 @@ class GuideTitleTest(unittest.TestCase):
         if title is not None:
             event_in["session_title"] = title
         return self.run_script("hook", stdin=json.dumps(event_in), **extra_env)
+
+    def guide_title(self, **extra_env):
+        r = self.hook(**extra_env)
+        return json.loads(r.stdout)["hookSpecificOutput"]["sessionTitle"] if r.stdout else None
 
     def worker_title(self, title, event="UserPromptSubmit", **extra_env):
         """The title the hook sets on WORKER, or None when it prints nothing."""
@@ -71,13 +77,13 @@ class GuideTitleTest(unittest.TestCase):
             self.assertEqual(r.returncode, 0)
             self.assertEqual(json.loads(r.stdout), {"hookSpecificOutput": {
                 "hookEventName": event,
-                "sessionTitle": "🟥🟥 Sessions Manager (2 of 3) 🟥🟥"}})
+                "sessionTitle": TITLE}})
 
     def test_counts_follow_the_ledger(self):
         self.run_script("mark", self.ledger, "--session", GUIDE)
         with open(self.ledger, "w") as f:
             f.write(LEDGER.replace("| design spike [b5c6d7] | WATCHED", "| design spike [b5c6d7] | MANAGED"))
-        self.assertIn("(3 of 3)", self.hook().stdout)
+        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager (3 managed · 0 watched · 0 new) 🟥🟥")
 
     def test_title_format_can_be_overridden(self):
         self.run_script("mark", self.ledger, "--session", GUIDE)
@@ -126,7 +132,7 @@ class GuideTitleTest(unittest.TestCase):
         os.makedirs(proj)
         open(os.path.join(proj, GUIDE + ".jsonl"), "w").close()
         self.assertEqual(self.run_script("mark", self.ledger, "--session", GUIDE[:8]).returncode, 0)
-        self.assertIn("(2 of 3)", self.hook().stdout)
+        self.assertEqual(self.guide_title(), TITLE)
 
     def test_retired_guide_gets_the_green_title_and_never_red_again(self):
         self.run_script("mark", self.ledger, "--session", GUIDE)
@@ -142,7 +148,6 @@ class GuideTitleTest(unittest.TestCase):
         stdin = json.dumps({"session_id": GUIDE, "hook_event_name": "UserPromptSubmit"})
         r = self.run_script("hook", stdin=stdin, SESSION_GUIDE_RETIRED_TITLE="old guide")
         self.assertEqual(json.loads(r.stdout)["hookSpecificOutput"]["sessionTitle"], "old guide")
-
 
     def test_guided_worker_gets_the_prefix_on_its_own_title(self):
         self.assertEqual(self.run_script("guided", WORKER).returncode, 0)
@@ -175,7 +180,7 @@ class GuideTitleTest(unittest.TestCase):
         self.run_script("mark", self.ledger, "--session", GUIDE)
         self.assertNotEqual(self.run_script("guided", GUIDE).returncode, 0)
         self.assertEqual(json.loads(self.hook(title="anything").stdout)["hookSpecificOutput"]["sessionTitle"],
-                         "🟥🟥 Sessions Manager (2 of 3) 🟥🟥")
+                         TITLE)
         self.run_script("retire", GUIDE)
         self.assertNotEqual(self.run_script("guided", GUIDE).returncode, 0)
         self.assertEqual(self.run_script("unguided", GUIDE).returncode, 0)  # left as it is
@@ -205,7 +210,44 @@ class GuideTitleTest(unittest.TestCase):
     def test_a_guided_worker_that_becomes_the_guide_loses_the_prefix(self):
         self.run_script("guided", WORKER)
         self.assertEqual(self.run_script("mark", self.ledger, "--session", WORKER).returncode, 0)
-        self.assertEqual(self.worker_title("(g) billing lead"), "🟥🟥 Sessions Manager (2 of 3) 🟥🟥")
+        self.assertEqual(self.worker_title("(g) billing lead"), TITLE)
+
+    def test_new_count_comes_from_the_ledger_header(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        with open(self.ledger, "w") as f:
+            f.write(LEDGER.replace("since 10-27 09:00\n", "since 10-27 09:00\nNew: 3 (untracked, active <12h; 12:10)\n")
+                    + "New: 9 (outside the header: not counted)\n")
+        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager (2 managed · 1 watched · 3 new) 🟥🟥")
+        self.assertEqual(self.guide_title(SESSION_GUIDE_TITLE="{managed}/{watched}/{new} of {active}"), "2/1/3 of 3")
+
+    def test_done_session_gets_the_check_prefix_in_place_of_g(self):
+        self.run_script("guided", WORKER)
+        self.assertEqual(self.run_script("done", WORKER).returncode, 0)
+        for event in ("UserPromptSubmit", "SessionStart"):
+            self.assertEqual(self.worker_title("(g) billing lead · PR merged", event), "✅ billing lead · PR merged")
+        self.assertIsNone(self.worker_title("✅ billing lead · PR merged"))  # already right: no output
+        self.assertEqual(self.worker_title("✅ (g) ✅ billing lead"), "✅ billing lead")
+        self.assertEqual(self.worker_title("billing lead", SESSION_GUIDE_DONE_PREFIX="[done] "), "[done] billing lead")
+        self.assertEqual(self.run_script("done", WORKER).returncode, 0)  # a repeat is harmless
+        with open(os.path.join(self.cfg, "session-guide", "guides", WORKER)) as f:
+            self.assertEqual(f.read(), "done\n")
+
+    def test_done_is_never_g_or_red_again(self):
+        self.run_script("done", WORKER)
+        self.assertNotEqual(self.run_script("guided", WORKER).returncode, 0)
+        self.assertNotEqual(self.run_script("mark", self.ledger, "--session", WORKER).returncode, 0)
+        self.assertEqual(self.run_script("unguided", WORKER).returncode, 0)  # left as it is
+        self.assertEqual(self.worker_title("billing lead"), "✅ billing lead")
+
+    def test_done_refuses_guides_and_empty_ids(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        self.assertNotEqual(self.run_script("done", GUIDE).returncode, 0)
+        self.assertEqual(self.guide_title(), TITLE)
+        self.run_script("retire", GUIDE)
+        self.assertNotEqual(self.run_script("done", GUIDE).returncode, 0)
+        self.assertIn("(retired)", self.hook().stdout)
+        self.assertNotEqual(self.run_script("done", "", CLAUDE_CODE_SESSION_ID=WORKER).returncode, 0)
+        self.assertFalse(os.path.exists(os.path.join(self.cfg, "session-guide", "guides", WORKER)))
 
 
 if __name__ == "__main__":

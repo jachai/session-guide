@@ -36,8 +36,8 @@ answer, and asks you which ruling stands if it conflicts with an earlier one, be
 ## Handoffs
 
 Workers hand off near their context limit with a resume prompt. The guide starts the successor and records it as
-MANAGED. The guide itself hands off at ~120k: because the ledger is current, the next guide needs one line,
-`/session-guide` + "Take over as guide. Ledger: <path>."
+MANAGED. The guide itself prints its context size in every status reply and hands off at 120k: because the ledger
+is current, the next guide needs one line, `/session-guide` + "Take over as guide. Ledger: <path>."
 
 The guide it replaces is **retired**, not left hanging. The new guide runs `guide_title.py retire <old id>`, so the old
 title turns to "🟩🟩 Sessions Manager (retired) 🟩🟩" and never goes red again. Then it asks the old guide for a
@@ -54,6 +54,18 @@ front. When the prefix is already there it prints nothing, so a titling hook's f
 session-titles treats the one prefixed title as a rename and keeps "(g) " in its origin. `unguided` flips the marker
 to `unguided`: the hook strips the prefix on the next prompt, then deletes the marker. Guide and retired markers hold
 a ledger path or `retired`, so they never get the prefix.
+
+## Sweeps and closing
+
+Every wake starts with `claude-top --once -n 30`. A session active in the last 12 hours with no row in the ledger is
+new: the guide writes the count into the ledger header (`New: <n>`, which its title shows) and asks about all of them
+in one line, with a recommendation for each. A WATCHED session that asks a question gets it put to the user, and the
+answer relayed back in one message, its only one.
+
+A MANAGED session that is finished or obsolete is closed, the way a guide is retired: `guide_title.py done <id>`
+writes the marker `done`, so the hook swaps "(g) " for "✅ " and never gives the session "(g) " or a guide title
+again. The guide asks it for a final message with a `result:` line, checks its state shows done, and marks its row
+DONE. A session stuck on a dialog can't read the message, so the user gets `! claude stop <id>` instead.
 
 ## Addressing sessions
 

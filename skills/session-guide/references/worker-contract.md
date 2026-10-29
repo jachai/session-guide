@@ -22,10 +22,14 @@ GUIDED WORKER: you are managed by guide '<guide title>' [<id6>]. Until a guide s
    it's your turn.
 7. Your title starts with "(g) " while you are managed: it tells the user you don't need them. It stays through
    renames, DONE and stand-down; `/session-guide leave` takes it off.
+8. STAND DOWN: finish your current step, then end your final message with a line `result: <what you finished>`.
+   CLOSE: use no tools and reply exactly as the guide asks, `result:` line included. Your title then starts with
+   "✅ " instead of "(g) ", and your state turns done.
 ```
 
 The prefix comes from `scripts/guide_title.py guided <session id>`: the guide runs it for every MANAGED worker, and
-`/session-guide join` runs it on the joining session. `unguided <session id>` takes it off.
+`/session-guide join` runs it on the joining session. `unguided <session id>` takes it off, and `done <session id>`
+(the guide's CLOSE) swaps it for "✅ ".
 
 ## Prompt suffix (for sessions the guide starts with `claude --bg`)
 

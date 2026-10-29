@@ -5,6 +5,25 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-29
+
+### Added
+
+- Sweeps. Every wake runs `claude-top --once -n 30`; sessions active in the last 12 h with no ledger row are asked
+  about in one batched "New sessions: … Manage, watch or ignore?" line, with a recommendation for each.
+- Closing. `guide_title.py done <id>` (marker `done`) swaps a finished or obsolete worker's "(g) " for "✅ " (override:
+  `SESSION_GUIDE_DONE_PREFIX`); `guided` and `mark` refuse it afterwards. The guide sends CLOSE, asks for a `result:`
+  line, checks the state shows done, and lists `! claude stop <id>` for a session stuck on a dialog. Every STAND DOWN
+  asks for the `result:` line too.
+- A WATCHED session's unanswered question goes to the user; the answer is relayed in one message, the only one a
+  WATCHED session gets.
+- The guide prints its own context size in every status reply and hands off at 120k.
+
+### Changed
+
+- The guide title is "🟥🟥 Sessions Manager (2 managed · 1 watched · 3 new) 🟥🟥". new comes from a `New: <n>` line
+  the guide writes into the ledger header on each sweep. `SESSION_GUIDE_TITLE` gains `{watched}` and `{new}`.
+
 ## [0.1.2] - 2026-10-28
 
 ### Added

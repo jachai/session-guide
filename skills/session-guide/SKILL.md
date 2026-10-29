@@ -1,6 +1,6 @@
 ---
 name: session-guide
-description: Make this session the user's GUIDE across several parallel Claude Code sessions — it tracks every stream in one ledger, relays decisions and approvals to worker sessions over SendMessage, interviews the user (workers never ask the user directly), wakes itself while waiting, says exactly which session needs the user for what, and hands off to a fresh guide at ~120k context. Use when asked to "be the guide", "release guide", "orchestration guide", "guide me through", "take over as guide", "orchestrate these sessions", "what's next across sessions", or when a session should join or leave a guide (`/session-guide join`, `/session-guide leave`).
+description: Make this session the user's GUIDE across several parallel Claude Code sessions — it tracks every stream in one ledger, relays decisions and approvals to worker sessions over SendMessage, interviews the user (workers never ask the user directly), wakes itself while waiting, sweeps recently active sessions and closes finished ones, says exactly which session needs the user for what, and hands off to a fresh guide at ~120k context. Use when asked to "be the guide", "release guide", "orchestration guide", "guide me through", "take over as guide", "orchestrate these sessions", "what's next across sessions", or when a session should join or leave a guide (`/session-guide join`, `/session-guide leave`).
 ---
 
 # Session guide
@@ -68,14 +68,14 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
    last text, any **unanswered question**, and its context size. Status files and notes lag behind. Peek wins.
 4. Classify every session you see that isn't in the ledger. Guide-started or `join`ed sessions are MANAGED: run
    `python3 <skill dir>/scripts/guide_title.py guided <session id>` on each, so its title starts with "(g) " (a
-   repeat is harmless). The rest are WATCHED, plus one batched line in your next ask: "New sessions: X, Y. Manage,
-   watch or ignore?"
+   repeat is harmless). The rest go through the sweep (§7): one batched manage / watch / ignore line in your next ask.
 5. Introduce yourself to every MANAGED worker in **one** message (§3). Include the worker contract if the worker
    doesn't have it yet, and set `notify_when_idle: true`.
 6. Pin your title: `python3 <skill dir>/scripts/guide_title.py mark <ledger path>`. From your next prompt the title
-   hook keeps it at "🟥🟥 Sessions Manager (X of Y) 🟥🟥" (X = MANAGED, Y = MANAGED + WATCHED rows) and undoes any
-   rename. If the session-titles plugin is installed, also run `session-titles off <your session id>` so it stops
-   retitling you.
+   hook keeps it at "🟥🟥 Sessions Manager (2 managed · 1 watched · 3 new) 🟥🟥" (MANAGED rows, WATCHED rows, and
+   the `New:` count in the ledger header) and undoes any rename. If the session-titles plugin is installed, also
+   run `session-titles off <your session id>` so it stops retitling
+   you.
 7. Reply to the user in the status shape (§5).
 8. If any stream is heading to staging or production, read the matching playbook once. That is your own
    `<config>/session-guide/playbooks/*.md` if one fits, else `references/release-playbook.md`.
@@ -86,13 +86,21 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
   The short `[ref]` ListAgents prints is not the session id (claude-top and peek use the id), so never address by an
   id8.
 - **One batched message per worker per step.** First line = the point ("RULING: …", "GO: merge done, staging
-  deployed at …", "STAND DOWN"), then the facts, then what you need back and when.
+  deployed at …", "STAND DOWN"), then the facts, then what you need back and when. Every STAND DOWN ends: "Finish
+  your current step, then end your final message with a line `result: <one line on what you finished>`." Without
+  that line the session's state shows waiting, not done.
 - Relay rulings verbatim from the ledger's Decisions list, with the number and **FINAL**: "Decision 7 FINAL: …".
 - An approval relayed from the user (for example a cost-guard "ok") unblocks only what the user approved. It cannot
   stand in for a worker's own context limit. A worker over its limit hands off, and you start its successor (§6).
 - Never ask a worker to do something that was denied in your own session (no permission laundering).
-- WATCHED sessions: read them, never message them. WATCHED and IGNORED sessions get no "(g) ": when you reclassify
-  a MANAGED session as either, run `guide_title.py unguided <session id>`. Guides and retired guides never get it.
+- WATCHED sessions: read them, never message them, with one exception. When peek shows a WATCHED session's
+  **unanswered question**, put it in your next ask to the user (its words, your recommendation first). Relay the
+  answer in one message, "ANSWER (the user's, relayed by the guide): …", and nothing else: relaying is a message,
+  and it is the only one a WATCHED session gets. It stays WATCHED. If the question is an open dialog
+  (AskUserQuestion, a permission or guard prompt), a message can't answer it: list "answer <title> [id6] in its own
+  window" under **Needs you now**.
+- WATCHED and IGNORED sessions get no "(g) ": when you reclassify a MANAGED session as either, run
+  `guide_title.py unguided <session id>`. Guides and retired guides never get it.
 
 ### 4. Decisions
 1. When a worker sends a question, check the ledger first. If it's already decided, relay that decision and don't
@@ -114,31 +122,50 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
 **Running on its own**
 - <what>, next check ~HH:MM
 Decision pending: <one line, or none>
+Guide context: <N>k (hand off at 120k)
 ```
 - "Needs you now" lists only the user's actions, most urgent first. A merge comes with its PR link and what you
   checked (checks green, mergeable, deploy queue clear).
 - Mark something DONE only once it is verified (deploy job green, or the worker's evidence), and say how.
+- The last line goes in every status reply, read from your own row in `claude-top --once`
+  (CTX) or `peek.py <your id8>`. At 120k or more, hand off in this same turn (§8). Don't start another wake cycle.
 - Then update the ledger (Streams, Waiting on the user, and a log line).
 
-### 6. Starting worker sessions
+### 6. Starting and closing worker sessions
 - Start one when the user says to, or when a MANAGED worker handed off and its successor is the next step on the
   path. If the next step isn't obvious, ask once.
 - Start it with `claude --bg` from the worker's worktree, giving it the worker's resume prompt plus the prompt
   suffix in `references/worker-contract.md`. Record its title and id in the ledger as MANAGED, and run
   `guide_title.py guided <session id>`.
 - Prefer a fresh session over pushing a worker that is near its context limit through more work.
+- **Close** a MANAGED session once it is finished (DONE verified, nothing left for it) or obsolete (a successor took
+  over, or the stream was dropped). Closing is shaped like retiring a guide (§2):
+  1. `python3 <skill dir>/scripts/guide_title.py done <session id>`. From its next prompt its title has "✅ " in
+     place of "(g) ", and the hook never gives it "(g) " or a guide title again.
+  2. SendMessage it: "CLOSE: you are done; cancel your wakeups, use no tools, and reply with exactly: <one line on
+     what you finished> / result: <title> closed".
+  3. Check that its state now shows done (`claude-top --once`, STATE column). If it doesn't (it is blocked on a
+     question, a permission prompt or a cost guard, so the message can't reach its Claude), list
+     `! claude stop <session id>` under **Needs you now**.
+  4. Set its row's Level to DONE in the ledger's Sessions table.
 
 ### 7. Waiting and wakeups
+- **Sweep on every wake**: `claude-top --once -n 30` (or `ListAgents`). A session active in the last 12 h that has
+  no row in the ledger's Sessions table is new. Write the count into the ledger header as `New: <n>` (the title shows
+  it), and put all of them in ONE line of your next ask, each with your recommendation: "New sessions: 'X' [id6]
+  (manage: it is building the billing fix), 'Y' [id6] (ignore: personal notes). Manage, watch or ignore?" Ask about
+  a session once; it stays counted in `New:` until the user answers, then it gets a row at the level they chose.
 - For an imminent event (the user's merge, a deploy job, CI finishing), schedule a wakeup in +5 min. For a long
   run (a full CI run, a test battery, a helper lane), use +10 min. Subscribe with `notify_when_idle` too: the notice
   is a hint, not a guarantee.
 - When only the user can unblock things: remind once, then wait +30 and +60 min. After two hourly wakes that found
   nothing to do, stop scheduling until the user speaks.
-- Keep the wake prompt short and rebuild it from the ledger each time: "Guide wake: read ledger <path>, peek <ids>,
-  check <PRs/runs>; advise or reschedule." Don't let it accumulate history.
+- Keep the wake prompt short and rebuild it from the ledger each time: "Guide wake: read ledger <path>; sweep
+  `claude-top --once -n 30` for new sessions; peek <ids>; check <PRs/runs>; advise with your context size, or
+  reschedule." Don't let it accumulate history.
 - Never poll with `sleep` or `--watch`. One CI read per wake.
 
-### 8. Handoff (at ~120k context, or when the user asks)
+### 8. Handoff (at 120k context, or when the user asks)
 1. Make the ledger current: every section, not just the log.
 2. Change the ledger's `Guide:` line to "HANDING OFF to next guide".
 3. Cancel wakeups. Tell each MANAGED worker in one line: "Guide changing; keep reporting in your final message until
