@@ -49,7 +49,7 @@ class GuideTitleTest(unittest.TestCase):
     def run_script(self, *args, stdin="", **extra_env):
         env = {k: v for k, v in os.environ.items()
                if k not in ("CLAUDE_CODE_SESSION_ID", "SESSION_GUIDE_TITLE", "SESSION_GUIDE_GUIDED_PREFIX",
-                            "SESSION_GUIDE_DONE_PREFIX")}
+                            "SESSION_GUIDE_DONE_PREFIX", "SESSION_GUIDE_WATCHED_PREFIX")}
         env.update(CLAUDE_CONFIG_DIR=self.cfg, **extra_env)
         return subprocess.run([sys.executable, SCRIPT] + list(args), input=stdin, capture_output=True, text=True,
                               env=env)
@@ -134,12 +134,12 @@ class GuideTitleTest(unittest.TestCase):
         self.assertEqual(self.run_script("mark", self.ledger, "--session", GUIDE[:8]).returncode, 0)
         self.assertEqual(self.guide_title(), TITLE)
 
-    def test_retired_guide_gets_the_green_title_and_never_red_again(self):
+    def test_retired_guide_gets_the_faded_red_title_and_never_red_again(self):
         self.run_script("mark", self.ledger, "--session", GUIDE)
         self.assertEqual(self.run_script("retire", GUIDE).returncode, 0)
         for event in ("UserPromptSubmit", "SessionStart"):
             self.assertEqual(json.loads(self.hook(event=event).stdout), {"hookSpecificOutput": {
-                "hookEventName": event, "sessionTitle": "🟩🟩 Sessions Manager (retired) 🟩🟩"}})
+                "hookEventName": event, "sessionTitle": "🎟️🎟️ Sessions Manager (retired) 🎟️🎟️"}})
         self.assertNotEqual(self.run_script("mark", self.ledger, "--session", GUIDE).returncode, 0)
         self.assertIn("(retired)", self.hook().stdout)
 
@@ -153,15 +153,21 @@ class GuideTitleTest(unittest.TestCase):
         self.assertEqual(self.run_script("guided", WORKER).returncode, 0)
         title = "housing stage 0 PR A gate · Running e2e2 rows"
         for event in ("UserPromptSubmit", "SessionStart"):
-            self.assertEqual(self.worker_title(title, event), "(g) " + title)
+            self.assertEqual(self.worker_title(title, event), "🟧🟧 (g) " + title)
         self.assertIsNone(self.worker_title(""))  # no title yet: nothing to prefix
 
     def test_guided_prefix_is_idempotent(self):
         self.run_script("guided", WORKER)
         self.run_script("guided", WORKER)
-        self.assertIsNone(self.worker_title("(g) billing lead · Waiting on CI"))  # focus updates keep it: no output
-        self.assertEqual(self.worker_title("(g) (g) billing lead"), "(g) billing lead")
-        self.assertEqual(self.worker_title("(g)billing lead"), "(g) billing lead")
+        self.assertIsNone(self.worker_title("🟧🟧 (g) billing lead · Waiting on CI"))  # focus updates keep it: no output
+        self.assertEqual(self.worker_title("🟧🟧 (g) 🟧🟧 (g) billing lead"), "🟧🟧 (g) billing lead")
+        self.assertEqual(self.worker_title("(g)billing lead"), "🟧🟧 (g) billing lead")
+
+    def test_a_title_with_the_old_bare_g_is_upgraded(self):
+        self.run_script("guided", WORKER)
+        self.assertEqual(self.worker_title("(g) billing lead · Waiting on CI"), "🟧🟧 (g) billing lead · Waiting on CI")
+        self.assertEqual(self.worker_title("(g) (g) billing lead"), "🟧🟧 (g) billing lead")
+        self.assertEqual(self.worker_title("🟧🟧 billing lead"), "🟧🟧 (g) billing lead")
 
     def test_guided_prefix_can_be_overridden(self):
         self.run_script("guided", WORKER)
@@ -171,7 +177,7 @@ class GuideTitleTest(unittest.TestCase):
     def test_unguided_takes_the_prefix_off_then_drops_the_marker(self):
         self.run_script("guided", WORKER)
         self.assertEqual(self.run_script("unguided", WORKER).returncode, 0)
-        self.assertEqual(self.worker_title("(g) billing lead · Waiting on CI"), "billing lead · Waiting on CI")
+        self.assertEqual(self.worker_title("🟧🟧 (g) billing lead · Waiting on CI"), "billing lead · Waiting on CI")
         self.assertIsNone(self.worker_title("billing lead · Waiting on CI"))
         self.assertFalse(os.path.exists(os.path.join(self.cfg, "session-guide", "guides", WORKER)))
         self.assertIsNone(self.worker_title("(g) renamed by hand"))  # unmanaged now: the hook leaves it alone
@@ -187,6 +193,48 @@ class GuideTitleTest(unittest.TestCase):
         self.assertIn("(retired)", self.hook(title="anything").stdout)
         self.assertNotIn("(g)", self.hook(title="anything").stdout)
 
+    def test_watched_session_gets_the_gray_blocks_and_no_g(self):
+        self.assertEqual(self.run_script("watched", WORKER).returncode, 0)
+        title = "design spike · Reading the diff"
+        for event in ("UserPromptSubmit", "SessionStart"):
+            self.assertEqual(self.worker_title(title, event), "⬜⬜ " + title)
+        self.assertIsNone(self.worker_title("⬜⬜ " + title))  # focus updates keep it: no output
+        self.assertEqual(self.worker_title("⬜⬜ ⬜⬜ design spike"), "⬜⬜ design spike")
+        self.assertIsNone(self.worker_title(""))  # no title yet: nothing to prefix
+        self.assertEqual(self.worker_title("design spike", SESSION_GUIDE_WATCHED_PREFIX="[w] "), "[w] design spike")
+
+    def test_guided_and_watched_swap_prefixes(self):
+        self.run_script("guided", WORKER)
+        self.run_script("watched", WORKER)
+        self.assertEqual(self.worker_title("🟧🟧 (g) billing lead"), "⬜⬜ billing lead")
+        self.assertEqual(self.worker_title("(g) billing lead"), "⬜⬜ billing lead")
+        self.run_script("guided", WORKER)
+        self.assertEqual(self.worker_title("⬜⬜ billing lead"), "🟧🟧 (g) billing lead")
+
+    def test_unwatched_takes_the_prefix_off_then_drops_the_marker(self):
+        self.run_script("watched", WORKER)
+        self.assertEqual(self.run_script("unwatched", WORKER).returncode, 0)
+        self.assertEqual(self.worker_title("⬜⬜ design spike"), "design spike")
+        self.assertIsNone(self.worker_title("design spike"))
+        self.assertFalse(os.path.exists(os.path.join(self.cfg, "session-guide", "guides", WORKER)))
+        self.assertIsNone(self.worker_title("⬜⬜ renamed by hand"))  # unmanaged now: the hook leaves it alone
+
+    def test_watched_refuses_guides_retired_guides_and_closed_sessions(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        self.assertNotEqual(self.run_script("watched", GUIDE).returncode, 0)
+        self.assertEqual(self.guide_title(), TITLE)
+        self.run_script("retire", GUIDE)
+        self.assertNotEqual(self.run_script("watched", GUIDE).returncode, 0)
+        self.assertIn("(retired)", self.hook().stdout)
+        self.run_script("done", WORKER)
+        self.assertNotEqual(self.run_script("watched", WORKER).returncode, 0)
+        self.assertEqual(self.worker_title("billing lead"), "✅ billing lead")
+
+    def test_a_watched_session_that_becomes_the_guide_loses_the_prefix(self):
+        self.run_script("watched", WORKER)
+        self.assertEqual(self.run_script("mark", self.ledger, "--session", WORKER).returncode, 0)
+        self.assertEqual(self.worker_title("⬜⬜ billing lead"), TITLE)
+
     def test_an_empty_or_unknown_id_is_an_error_not_this_session(self):
         for cmd in ("guided", "unguided", "retire"):
             for sid in ("", "  ", "deadbeef"):
@@ -196,7 +244,7 @@ class GuideTitleTest(unittest.TestCase):
                             .returncode, 0)
         self.assertFalse(os.path.exists(os.path.join(self.cfg, "session-guide", "guides", WORKER)))
         self.assertEqual(self.run_script("guided", CLAUDE_CODE_SESSION_ID=WORKER).returncode, 0)  # no id: this one
-        self.assertEqual(self.worker_title("billing lead"), "(g) billing lead")
+        self.assertEqual(self.worker_title("billing lead"), "🟧🟧 (g) billing lead")
 
     def test_an_id_prefix_resolves_from_a_worktree_project_folder(self):
         for proj in ("-tmp-repo", "-tmp-repo--claude-worktrees-billing"):  # moved into a worktree mid-session
@@ -227,6 +275,8 @@ class GuideTitleTest(unittest.TestCase):
             self.assertEqual(self.worker_title("(g) billing lead · PR merged", event), "✅ billing lead · PR merged")
         self.assertIsNone(self.worker_title("✅ billing lead · PR merged"))  # already right: no output
         self.assertEqual(self.worker_title("✅ (g) ✅ billing lead"), "✅ billing lead")
+        self.assertEqual(self.worker_title("🟧🟧 (g) billing lead"), "✅ billing lead")
+        self.assertEqual(self.worker_title("⬜⬜ billing lead"), "✅ billing lead")
         self.assertEqual(self.worker_title("billing lead", SESSION_GUIDE_DONE_PREFIX="[done] "), "[done] billing lead")
         self.assertEqual(self.run_script("done", WORKER).returncode, 0)  # a repeat is harmless
         with open(os.path.join(self.cfg, "session-guide", "guides", WORKER)) as f:

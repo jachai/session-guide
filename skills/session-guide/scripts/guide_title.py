@@ -3,10 +3,12 @@
 
     python3 guide_title.py mark <ledger.md> [--session <id>]   this session is a guide
     python3 guide_title.py unmark [--session <id>]             it no longer is
-    python3 guide_title.py retire [<id>]                       it handed over: green title, never red again
-    python3 guide_title.py guided [<id>]                       a MANAGED worker: "(g) " before its title
-    python3 guide_title.py unguided [<id>]                     no longer managed: the prefix comes off
-    python3 guide_title.py done [<id>]                         closed: "✅ " before its title, never "(g) " again
+    python3 guide_title.py retire [<id>]                       it handed over: faded red title, never red again
+    python3 guide_title.py guided [<id>]                       a MANAGED worker: orange blocks + "(g) " first
+    python3 guide_title.py watched [<id>]                      a WATCHED session: light gray blocks first
+    python3 guide_title.py unguided [<id>]                     no longer managed or watched: the prefix comes off
+    python3 guide_title.py unwatched [<id>]                    the same as unguided
+    python3 guide_title.py done [<id>]                         closed: "✅ " before its title, never orange again
     python3 guide_title.py hook                                UserPromptSubmit / SessionStart hook (JSON on stdin)
 
 A marked session gets this title on every prompt and every start, so a rename (by hand or by another titling hook)
@@ -23,20 +25,30 @@ marker is
 $CLAUDE_CONFIG_DIR/session-guide/guides/<session id> (default ~/.claude), holding the ledger path. The hook fails
 open: an unmarked session, a missing or unreadable ledger, or bad input prints nothing and exits 0.
 
+Every title kind has its own color, so the agents view reads at a glance:
+
+    🟥🟥 Sessions Manager (...) 🟥🟥              the active guide
+    🎟️🎟️ Sessions Manager (retired) 🎟️🎟️         a retired guide (no pale red square exists; closest)
+    ⬜⬜ design spike · Reading the diff          a WATCHED session: not managed, only watched
+    🟧🟧 (g) billing lead · Waiting on CI         a MANAGED (guided) session
+
 A retired guide (one that handed over to a new guide) gets RETIRED_TITLE instead, on its next prompt and from then on
 (override: SESSION_GUIDE_RETIRED_TITLE). Its marker holds `retired`, so the hook can't turn it red again.
 
 A guided worker (marker `guided`) keeps its own title with GUIDED_PREFIX in front (override:
 SESSION_GUIDE_GUIDED_PREFIX), so the user can tell at a glance which sessions don't need them. The hook prefixes the
 title the session has now and prints nothing once it is prefixed, so another titling hook (session-titles) sees a
-rename, adopts the prefixed origin and keeps it through focus updates. Repeated prefixes collapse to one. `unguided`
-(marker `unguided`) takes the prefix off on the next prompt, after which the hook drops the marker. A guide or a
-retired guide is never prefixed: `guided` refuses them, and `mark` replaces a guided marker.
+rename, adopts the prefixed origin and keeps it through focus updates. Repeated prefixes collapse to one, and a title
+still carrying the bare "(g) " of older versions is upgraded. A watched session (marker `watched`) gets WATCHED_PREFIX
+the same way (override: SESSION_GUIDE_WATCHED_PREFIX); `guided` and `watched` swap one prefix for the other. `unguided`
+(marker `unguided`) takes either prefix off on the next prompt, after which the hook drops the marker. A guide or a
+retired guide is never prefixed: `guided` and `watched` refuse them, and `mark` replaces a guided or watched marker.
 
 A closed session (marker `done`, from `done <id>`: the guide closed a finished or obsolete worker) gets DONE_PREFIX in
-place of the guided prefix (override: SESSION_GUIDE_DONE_PREFIX), the same way. `guided` and `mark` refuse it, so it
-is never "(g) " or red again; `done` refuses a guide or a retired guide (retire a guide instead).
---session (and the <id> of retire / guided / unguided) defaults to $CLAUDE_CODE_SESSION_ID and may be an id prefix.
+place of the guided prefix (override: SESSION_GUIDE_DONE_PREFIX), the same way. `guided`, `watched` and `mark` refuse
+it, so it is never orange, gray or red again; `done` refuses a guide or a retired guide (retire a guide instead).
+--session (and the <id> of retire / guided / watched / unguided) defaults to $CLAUDE_CODE_SESSION_ID and may be an id
+prefix.
 Python 3 stdlib only.
 """
 import argparse
@@ -48,11 +60,14 @@ import sys
 
 TITLE = ("\U0001f7e5\U0001f7e5 Sessions Manager ({managed} managed \u00b7 {watched} watched \u00b7 {new} new)"
          " \U0001f7e5\U0001f7e5")
-RETIRED_TITLE = "\U0001f7e9\U0001f7e9 Sessions Manager (retired) \U0001f7e9\U0001f7e9"
-GUIDED_PREFIX = "(g) "
+RETIRED_TITLE = ("\U0001f39f\ufe0f\U0001f39f\ufe0f Sessions Manager (retired)"
+                 " \U0001f39f\ufe0f\U0001f39f\ufe0f")
+GUIDED_PREFIX = "\U0001f7e7\U0001f7e7 (g) "
+WATCHED_PREFIX = "\u2b1c\u2b1c "
 DONE_PREFIX = "\u2705 "
 RETIRED = "retired"  # marker content for a retired guide, in place of a ledger path
 GUIDED, UNGUIDED = "guided", "unguided"  # marker content for a MANAGED worker, and for one that just left
+WATCHED = "watched"  # marker content for a WATCHED session
 DONE = "done"  # marker content for a session the guide closed
 
 
@@ -117,18 +132,25 @@ def guided_prefix():
     return os.environ.get("SESSION_GUIDE_GUIDED_PREFIX") or GUIDED_PREFIX
 
 
+def watched_prefix():
+    return os.environ.get("SESSION_GUIDE_WATCHED_PREFIX") or WATCHED_PREFIX
+
+
 def done_prefix():
     return os.environ.get("SESSION_GUIDE_DONE_PREFIX") or DONE_PREFIX
 
 
 def worker_title(content, current):
-    """The guided / unguided / done title for `current`, or None when it is already right (or there is none yet)."""
-    marks = [guided_prefix().strip()] + [done_prefix().strip()] * (content == DONE)
+    """The guided / watched / unguided / done title for `current`, or None when it is already right (or there is none
+    yet)."""
+    marks = [guided_prefix().strip(), watched_prefix().strip(), GUIDED_PREFIX.strip(), WATCHED_PREFIX.strip(),
+             "\U0001f7e7\U0001f7e7", "(g)"] + [done_prefix().strip()] * (content == DONE)
     bare = current
     while any(m and bare.startswith(m) for m in marks):
         mark = next(m for m in marks if m and bare.startswith(m))
         bare = bare[len(mark):].lstrip()
-    want = {GUIDED: guided_prefix() + bare, DONE: done_prefix() + bare}.get(content, bare)
+    want = {GUIDED: guided_prefix() + bare, WATCHED: watched_prefix() + bare,
+            DONE: done_prefix() + bare}.get(content, bare)
     return want if bare and want != current else None
 
 
@@ -136,7 +158,7 @@ def title_for(session_id, current=""):
     content = marker_content(session_id)
     if content is None:
         return None
-    if content in (GUIDED, UNGUIDED, DONE):
+    if content in (GUIDED, WATCHED, UNGUIDED, DONE):
         return worker_title(content, current)
     if content == RETIRED:
         return os.environ.get("SESSION_GUIDE_RETIRED_TITLE") or RETIRED_TITLE
@@ -198,28 +220,41 @@ def cmd_guided(args):
     content = marker_content(sid)
     if content == DONE:
         raise SystemExit("%s is closed; a closed session is never managed again" % sid[:8])
-    if content not in (None, GUIDED, UNGUIDED):
+    if content not in (None, GUIDED, WATCHED, UNGUIDED):
         raise SystemExit("%s is a guide%s; guides get no prefix" % (sid[:8], " (retired)" * (content == RETIRED)))
     write_marker(sid, GUIDED)
     print("%s is guided; %r goes before its title from its next prompt" % (sid[:8], guided_prefix()))
     return 0
 
 
+def cmd_watched(args):
+    sid = resolve_session(args.session)
+    content = marker_content(sid)
+    if content == DONE:
+        raise SystemExit("%s is closed; a closed session is never watched again" % sid[:8])
+    if content not in (None, GUIDED, WATCHED, UNGUIDED):
+        raise SystemExit("%s is a guide%s; guides get no prefix" % (sid[:8], " (retired)" * (content == RETIRED)))
+    write_marker(sid, WATCHED)
+    print("%s is watched; %r goes before its title from its next prompt" % (sid[:8], watched_prefix()))
+    return 0
+
+
 def cmd_unguided(args):
     sid = resolve_session(args.session)
     content = marker_content(sid)
-    if content not in (None, GUIDED, UNGUIDED):
-        print("%s is %s, not a guided worker; left as it is" % (sid[:8], "closed" if content == DONE else "a guide"))
+    if content not in (None, GUIDED, WATCHED, UNGUIDED):
+        print("%s is %s, not a guided or watched worker; left as it is"
+              % (sid[:8], "closed" if content == DONE else "a guide"))
         return 0
     write_marker(sid, UNGUIDED)
-    print("%s is unguided; the prefix comes off its title on its next prompt" % sid[:8])
+    print("%s is unmanaged; the prefix comes off its title on its next prompt" % sid[:8])
     return 0
 
 
 def cmd_done(args):
     sid = resolve_session(args.session)
     content = marker_content(sid)
-    if content not in (None, GUIDED, UNGUIDED, DONE):
+    if content not in (None, GUIDED, WATCHED, UNGUIDED, DONE):
         raise SystemExit("%s is a %sguide; retire it instead" % (sid[:8], "retired " * (content == RETIRED)))
     write_marker(sid, DONE)
     print("%s is closed; %r goes before its title from its next prompt" % (sid[:8], done_prefix()))
@@ -241,17 +276,22 @@ def main(argv=None):
     mark.add_argument("--session")
     unmark = sub.add_parser("unmark", help="unmark a guide session")
     unmark.add_argument("--session")
-    retire = sub.add_parser("retire", help="retire a guide that handed over (green title)")
+    retire = sub.add_parser("retire", help="retire a guide that handed over (faded red title)")
     retire.add_argument("session", nargs="?")
-    guided = sub.add_parser("guided", help='a MANAGED worker: "(g) " before its title')
+    guided = sub.add_parser("guided", help='a MANAGED worker: orange blocks and "(g) " before its title')
     guided.add_argument("session", nargs="?")
-    unguided = sub.add_parser("unguided", help="no longer managed: the prefix comes off")
+    watched = sub.add_parser("watched", help="a WATCHED session: light gray blocks before its title")
+    watched.add_argument("session", nargs="?")
+    unguided = sub.add_parser("unguided", help="no longer managed or watched: the prefix comes off")
     unguided.add_argument("session", nargs="?")
-    done = sub.add_parser("done", help='closed: "\u2705 " before its title, never "(g) " or red again')
+    unwatched = sub.add_parser("unwatched", help="the same as unguided")
+    unwatched.add_argument("session", nargs="?")
+    done = sub.add_parser("done", help='closed: "\u2705 " before its title, never orange, gray or red again')
     done.add_argument("session", nargs="?")
     args = p.parse_args(argv)
     commands = {"hook": lambda a: cmd_hook(), "mark": cmd_mark, "unmark": cmd_unmark, "retire": cmd_retire,
-                "guided": cmd_guided, "unguided": cmd_unguided, "done": cmd_done}
+                "guided": cmd_guided, "watched": cmd_watched, "unguided": cmd_unguided, "unwatched": cmd_unguided,
+                "done": cmd_done}
     return commands[args.cmd](args)
 
 

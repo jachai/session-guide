@@ -46,7 +46,7 @@ had a rule for it:
 | You answer a worker one way and the guide another. The worker builds the wrong one. | Workers never ask you directly. Every decision goes through the guide, is logged as **Decision N FINAL**, and is relayed verbatim. If you do answer a worker directly, the guide checks that answer against earlier decisions first. |
 | Each fresh guide re-reads a growing pile of notes and gives advice from a stale picture. | One **ledger** per effort, rewritten in place and kept under ~6 KB. A new guide reads it and nothing older. |
 | Status files lag. You get sent to answer a question you already answered. | Before every "what's next", `peek.py` reads the workers' own transcripts: last reply, unanswered questions, context size. |
-| Two guides are running and give you conflicting advice. | Sole-guide check at start: the guide asks you which one stays and retires the other (green title, state done). |
+| Two guides are running and give you conflicting advice. | Sole-guide check at start: the guide asks you which one stays and retires the other (faded red title, state done). |
 | "be0f7c41 is waiting on you." Which one is that? | Sessions are always named by title, with the id in brackets. |
 | The guide sits idle while a deploy finishes, or wakes every 10 minutes all night. | +5 min wakeups for imminent events and +10 for long runs. When only you can unblock things, it backs off to +30 and +60, then stops. |
 | A guide runs out of context mid-relay. | It prints its own context size in every status reply and hands off at 120k: ledger current, wakeups cancelled, a one-line prompt for the next guide. |
@@ -97,16 +97,31 @@ leave` opts it back out. Sessions the guide starts itself are managed automatica
 
 | Level | How a session gets it | What the guide does |
 |---|---|---|
-| **MANAGED** | `/session-guide join`, or started by the guide | Sends the contract, relays rulings and approvals, takes its questions. Its title starts with "(g) " |
-| **WATCHED** | Any other session the guide sees (the default) | Reads it for status. Asks you once: manage, watch or ignore? Its only message from the guide is your answer to a question it asked |
+| **MANAGED** | `/session-guide join`, or started by the guide | Sends the contract, relays rulings and approvals, takes its questions. Its title starts with "🟧🟧 (g) " |
+| **WATCHED** | Any other session the guide sees (the default) | Reads it for status. Asks you once: manage, watch or ignore? Its only message from the guide is your answer to a question it asked. Its title starts with "⬜⬜ " |
 | **IGNORED** | You said so | Leaves it alone |
-| **RETIRED** | A guide that handed over to a new one | Nothing: green title, state done |
+| **RETIRED** | A guide that handed over to a new one | Nothing: faded red title, state done |
 | **DONE** | A MANAGED session the guide closed (finished or obsolete) | Nothing: "✅ " title, state done |
 
 Other commands: `/session-guide handoff` makes the guide hand off now. Say "take over as guide, ledger: <path>" in a
 fresh session to continue.
 
-## Pinned title
+## Titles
+
+One color per kind of session, so the agents view reads at a glance:
+
+| Title | Session |
+|---|---|
+| `🟥🟥 Sessions Manager (2 managed · 1 watched · 3 new) 🟥🟥` | The active guide |
+| `🎟️🎟️ Sessions Manager (retired) 🎟️🎟️` | A retired guide |
+| `⬜⬜ design spike · Reading the diff` | WATCHED: the guide reads it but doesn't manage it |
+| `🟧🟧 (g) billing export lead · Waiting on CI` | MANAGED: guided, you don't need to go in |
+| `✅ search reindex lead · PR merged` | Closed by the guide |
+
+Unicode has no pale red square, so the retired guide's 🎟️ is the closest match, a dusty pink-red block. Its look
+varies by platform; override it with `SESSION_GUIDE_RETIRED_TITLE`.
+
+### The guide's pinned title
 
 The guide keeps one title, so you can always find it in the agents view:
 
@@ -122,27 +137,31 @@ every prompt, with fresh counts, so a rename (by hand or by another titling hook
 session is left alone: the hook prints nothing for it, and it prints nothing on any error too.
 
 When a new guide takes over, the old one is retired with `guide_title.py retire <id>`. Its title turns to
-`🟩🟩 Sessions Manager (retired) 🟩🟩` and never goes red again, and it ends with a `result:` line so its state shows
+`🎟️🎟️ Sessions Manager (retired) 🎟️🎟️` and never goes red again, and it ends with a `result:` line so its state shows
 done rather than waiting on you.
 
-A finished or obsolete worker is **closed** the same way: `guide_title.py done <id>` swaps its `(g) ` for `✅ `, the
+A finished or obsolete worker is **closed** the same way: `guide_title.py done <id>` swaps its `🟧🟧 (g) ` for `✅ `, the
 guide asks it for a final `result:` line, and checks its state turned done. If the session is stuck on a question or
 a guard prompt, the guide hands you `! claude stop <id>` instead.
 
-### Guided workers: "(g) "
+### Guided and watched sessions
 
-Every MANAGED session's title starts with `(g) `, for example `(g) billing export lead · Waiting on CI`. Those are
+Every MANAGED session's title starts with `🟧🟧 (g) `, for example `🟧🟧 (g) billing export lead · Waiting on CI`. Those are
 the sessions you don't need to go into; a session without it may need you. `/session-guide join` and the guide run
 `guide_title.py guided <id>`, and the same hook puts the prefix in front of the session's own title. It never doubles
 up, it survives renames and focus updates, and it stays through DONE until the guide closes the session.
-`guide_title.py unguided <id>` (on `/session-guide leave`, or when the guide reclassifies a session WATCHED or
-IGNORED) takes it off. The guide and a retired guide never get it. Override the prefix with `SESSION_GUIDE_GUIDED_PREFIX`.
+`guide_title.py unguided <id>` (on `/session-guide leave`, or when the guide reclassifies a session IGNORED) takes
+it off. The guide and a retired guide never get it. Override the prefix with `SESSION_GUIDE_GUIDED_PREFIX`.
+
+Every WATCHED session's title starts with `⬜⬜ `, from `guide_title.py watched <id>`, with the same behavior:
+`guided` and `watched` swap one prefix for the other when a session changes level. Override it with
+`SESSION_GUIDE_WATCHED_PREFIX`.
 
 - The plugin install registers the hook for you. A plain-skill install prints the `settings.json` snippet to add
   ([examples/settings-snippet.json](examples/settings-snippet.json)).
 - If you use [session-titles](https://github.com/jachai/session-titles), the guide also runs
-  `session-titles off <its id>` so the two hooks don't take turns. Guided workers keep session-titles on: it reads the
-  prefixed title as a rename and keeps `(g) ` in the origin from then on.
+  `session-titles off <its id>` so the two hooks don't take turns. Guided and watched sessions keep session-titles on: it reads the
+  prefixed title as a rename and keeps the prefix in the origin from then on.
 - To use your own format, set `SESSION_GUIDE_TITLE`, for example `"guide {managed}/{watched}/{new}"`, in the `env`
   block of `settings.json` (`{active}` is managed + watched). Avoid `*`, because some title tools strip markdown, and
   keep it short, because the agents view and claude-top cut long names. claude-top spots a guide by its marker file

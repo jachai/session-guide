@@ -24,12 +24,12 @@ first in every mode: its rules (your name, your cost guard, your tools) override
    `ListAgents` shows. If there is none, or more than one, ask the user which.
 2. Read `references/worker-contract.md` and follow it from now on.
 3. Mark yourself guided: `python3 <skill dir>/scripts/guide_title.py guided`. From your next prompt your title starts
-   with "(g) ", which tells the user this session doesn't need them.
+   with "🟧🟧 (g) ", which tells the user this session doesn't need them.
 4. `SendMessage` the guide by its full ListAgents row name. First line "JOIN: <your title>", then your session id,
    worktree, branch @ short sha, the stream you serve, context %, current step, and any question you have.
 5. Continue your own work. Do not wait for a reply.
 
-`leave`: run `python3 <skill dir>/scripts/guide_title.py unguided` (the "(g) " comes off on your next prompt), send
+`leave`: run `python3 <skill dir>/scripts/guide_title.py unguided` (the "🟧🟧 (g) " comes off on your next prompt), send
 the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
 
 ## Guide mode
@@ -57,7 +57,7 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
    a guide or is named on the ledger's `Guide:` line, ask the user which one stays. Then **retire** the other one
    (or, on a takeover, the guide you replace):
    1. `python3 <skill dir>/scripts/guide_title.py retire <old session id>`. Its title turns to
-      "🟩🟩 Sessions Manager (retired) 🟩🟩" on its next turn, and the title hook never turns it red again.
+      "🎟️🎟️ Sessions Manager (retired) 🎟️🎟️" on its next turn, and the title hook never turns it red again.
    2. SendMessage it: "RETIRE: you are no longer the guide; cancel your wakeups, use no tools, and reply with exactly:
       <one line on what you handed over> / result: <slug> guide retired and handed over to [<your id6>]". A
       session's job state only turns done when its own final message carries a `result:` line.
@@ -67,8 +67,9 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
 3. Run `python3 <skill dir>/scripts/peek.py <id8> …` on the 4–5 most recently active sessions. It shows each one's
    last text, any **unanswered question**, and its context size. Status files and notes lag behind. Peek wins.
 4. Classify every session you see that isn't in the ledger. Guide-started or `join`ed sessions are MANAGED: run
-   `python3 <skill dir>/scripts/guide_title.py guided <session id>` on each, so its title starts with "(g) " (a
-   repeat is harmless). The rest go through the sweep (§7): one batched manage / watch / ignore line in your next ask.
+   `python3 <skill dir>/scripts/guide_title.py guided <session id>` on each, so its title starts with "🟧🟧 (g) " (a
+   repeat is harmless). Run `guide_title.py watched <session id>` on each WATCHED row, so its title starts with
+   "⬜⬜ ". The rest go through the sweep (§7): one batched manage / watch / ignore line in your next ask.
 5. Introduce yourself to every MANAGED worker in **one** message (§3). Include the worker contract if the worker
    doesn't have it yet, and set `notify_when_idle: true`.
 6. Pin your title: `python3 <skill dir>/scripts/guide_title.py mark <ledger path>`. From your next prompt the title
@@ -99,8 +100,10 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
   and it is the only one a WATCHED session gets. It stays WATCHED. If the question is an open dialog
   (AskUserQuestion, a permission or guard prompt), a message can't answer it: list "answer <title> [id6] in its own
   window" under **Needs you now**.
-- WATCHED and IGNORED sessions get no "(g) ": when you reclassify a MANAGED session as either, run
-  `guide_title.py unguided <session id>`. Guides and retired guides never get it.
+- Titles follow the level, one color per kind: 🟥🟥 the active guide, 🎟️🎟️ a retired guide, 🟧🟧 (g) MANAGED,
+  ⬜⬜ WATCHED, none IGNORED, ✅ closed. Whenever a session's level is set or changes, run `guide_title.py guided`,
+  `watched` or `unguided` (IGNORED) on its session id; each one replaces the prefix it had. Guides and retired
+  guides never get one.
 
 ### 4. Decisions
 1. When a worker sends a question, check the ledger first. If it's already decided, relay that decision and don't
@@ -163,7 +166,7 @@ Guide context: <N>k (hand off at 120k)
 - **Close** a MANAGED session once it is finished (DONE verified, nothing left for it) or obsolete (a successor took
   over, or the stream was dropped). Closing is shaped like retiring a guide (§2):
   1. `python3 <skill dir>/scripts/guide_title.py done <session id>`. From its next prompt its title has "✅ " in
-     place of "(g) ", and the hook never gives it "(g) " or a guide title again.
+     place of "🟧🟧 (g) ", and the hook never gives it a guided, watched or guide title again.
   2. SendMessage it: "CLOSE: you are done; cancel your wakeups, use no tools, and reply with exactly: <one line on
      what you finished> / result: <title> closed".
   3. Check that its state now shows done (`claude-top --once`, STATE column). If it doesn't (it is blocked on a
@@ -176,7 +179,8 @@ Guide context: <N>k (hand off at 120k)
   no row in the ledger's Sessions table is new. Write the count into the ledger header as `New: <n>` (the title shows
   it), and put all of them in ONE line of your next ask, each with your recommendation: "New sessions: 'X' [id6]
   (manage: it is building the billing fix), 'Y' [id6] (ignore: personal notes). Manage, watch or ignore?" Ask about
-  a session once; it stays counted in `New:` until the user answers, then it gets a row at the level they chose.
+  a session once; it stays counted in `New:` until the user answers, then it gets a row at the level they chose, and
+  its title follows (§3).
 - **Open items on every wake**: re-check the reports and handoffs that arrived since the last wake for new items
   (§4, Open items), then put the rows still marked ASK or "new session (proposed)" into your next ask, at most 4,
   next to the new-sessions line.
@@ -199,7 +203,7 @@ Guide context: <N>k (hand off at 120k)
    one next action. If the user asks, start the next guide yourself with `claude --bg`.
 5. Once the successor has introduced itself (or sent you RETIRE), retire yourself instead of ending on a question:
    `python3 <skill dir>/scripts/guide_title.py retire`, then end with a final message whose last line is
-   `result: <slug> guide retired and handed over to [<new id6>]`. Your title turns green and your state turns done.
+   `result: <slug> guide retired and handed over to [<new id6>]`. Your title turns faded red and your state turns done.
 
 ### 9. Notes and skills
 - If you keep memory notes, keep ONE pointer per effort ("<slug> guide ledger: <path>"), updated in place and never

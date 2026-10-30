@@ -5,6 +5,21 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-30
+
+### Added
+
+- WATCHED sessions get a title too: `guide_title.py watched <id>` puts light gray blocks, "⬜⬜ ", before the title
+  (override: `SESSION_GUIDE_WATCHED_PREFIX`). `unwatched` takes them off, and `guided` and `watched` swap one prefix
+  for the other. The guide runs these whenever a session's level is set or changes.
+
+### Changed
+
+- One color per kind of session. MANAGED sessions now start with orange blocks in addition to the "(g)":
+  "🟧🟧 (g) ". A title with the old bare "(g) " is upgraded on its next prompt.
+- A retired guide's title is faded red instead of green: "🎟️🎟️ Sessions Manager (retired) 🎟️🎟️". Unicode has no pale red square, so 🎟️ is the
+  closest match. The active guide stays 🟥🟥, and closed sessions stay ✅.
+
 ## [0.1.4] - 2026-10-29
 
 ### Added

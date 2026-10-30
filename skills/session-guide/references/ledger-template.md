@@ -2,8 +2,8 @@
 
 Path: `<config>/session-guide/<slug>/ledger.md`. Rewrite sections **in place** so they always describe *now*.
 Only `## Log` is append-only, and it keeps the last ~15 lines. Trim older ones; the Decisions list keeps the durable
-facts. Aim for under 6 KB: a fresh guide reads this file and nothing older. Write titles without the "(g) " prefix
-that MANAGED workers carry, or the "✅ " of closed ones: the Level column already says so. `New:` is the count of
+facts. Aim for under 6 KB: a fresh guide reads this file and nothing older. Write titles without the "🟧🟧 (g) " or "⬜⬜ " prefix
+that MANAGED and WATCHED sessions carry, or the "✅ " of closed ones: the Level column already says so. `New:` is the count of
 sessions active in the last 12 h with no Sessions row, from the guide's last sweep; the guide's title shows it.
 
 **Open items** is a table, not a list. Every row has an Owner: an existing session (title [id6]), "new session

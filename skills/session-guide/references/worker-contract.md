@@ -21,11 +21,11 @@ GUIDED WORKER: you are managed by guide '<guide title>' [<id6>]. Until a guide s
    the guide named in your handoff.
 6. Never merge to the production branch or touch shared environments (deploys, test batteries) unless the guide says
    it's your turn.
-7. Your title starts with "(g) " while you are managed: it tells the user you don't need them. It stays through
+7. Your title starts with "🟧🟧 (g) " while you are managed: it tells the user you don't need them. It stays through
    renames, DONE and stand-down; `/session-guide leave` takes it off.
 8. STAND DOWN: finish your current step, then end your final message with a line `result: <what you finished>`.
    CLOSE: use no tools and reply exactly as the guide asks, `result:` line included. Your title then starts with
-   "✅ " instead of "(g) ", and your state turns done.
+   "✅ " instead of "🟧🟧 (g) ", and your state turns done.
 ```
 
 The prefix comes from `scripts/guide_title.py guided <session id>`: the guide runs it for every MANAGED worker, and

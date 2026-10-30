@@ -43,20 +43,24 @@ MANAGED. The guide itself prints its context size in every status reply and hand
 is current, the next guide needs one line, `/session-guide` + "Take over as guide. Ledger: <path>."
 
 The guide it replaces is **retired**, not left hanging. The new guide runs `guide_title.py retire <old id>`, so the old
-title turns to "🟩🟩 Sessions Manager (retired) 🟩🟩" and never goes red again. Then it asks the old guide for a
+title turns to "🎟️🎟️ Sessions Manager (retired) 🎟️🎟️" and never goes red again. Then it asks the old guide for a
 final message ending in a `result:` line, which turns that session's state to done instead of "needs input". It
 checks the state, and marks the old guide's row RETIRED in the ledger. An outgoing guide that sees its successor
 introduce itself retires itself the same way.
 
 ## Guided prefix
 
-A MANAGED worker's title starts with "(g) ", so the user can see which sessions don't need them. The marker is a
+A MANAGED worker's title starts with "🟧🟧 (g) ", so the user can see which sessions don't need them. The marker is a
 file next to the guide's own (`guides/<session id>`, holding `guided`), written by `guide_title.py guided`. On each
 prompt the hook reads the session's current title and, when the prefix is missing, sets the same title with it in
 front. When the prefix is already there it prints nothing, so a titling hook's focus update goes through untouched;
-session-titles treats the one prefixed title as a rename and keeps "(g) " in its origin. `unguided` flips the marker
+session-titles treats the one prefixed title as a rename and keeps the prefix in its origin. `unguided` flips the marker
 to `unguided`: the hook strips the prefix on the next prompt, then deletes the marker. Guide and retired markers hold
 a ledger path or `retired`, so they never get the prefix.
+
+A WATCHED session works the same way with the marker `watched` and the prefix "⬜⬜ " (`guide_title.py watched`), so
+a light gray row is a session the guide only reads. Anything else that reads these markers must treat a keyword it
+doesn't know as "not a guide": only a path is a guide.
 
 ## Sweeps and closing
 
@@ -66,7 +70,7 @@ in one line, with a recommendation for each. A WATCHED session that asks a quest
 answer relayed back in one message, its only one.
 
 A MANAGED session that is finished or obsolete is closed, the way a guide is retired: `guide_title.py done <id>`
-writes the marker `done`, so the hook swaps "(g) " for "✅ " and never gives the session "(g) " or a guide title
+writes the marker `done`, so the hook swaps "🟧🟧 (g) " for "✅ " and never gives the session a guided, watched or guide title
 again. The guide asks it for a final message with a `result:` line, checks its state shows done, and marks its row
 DONE. A session stuck on a dialog can't read the message, so the user gets `! claude stop <id>` instead.
 
