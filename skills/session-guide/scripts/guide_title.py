@@ -37,8 +37,7 @@ A retired guide (one that handed over to a new guide) gets RETIRED_TITLE instead
 
 A guided worker (marker `guided`) keeps its own title with GUIDED_PREFIX in front (override:
 SESSION_GUIDE_GUIDED_PREFIX), so the user can tell at a glance which sessions don't need them. The hook prefixes the
-title the session has now and prints nothing once it is prefixed, so another titling hook (session-titles) sees a
-rename, adopts the prefixed origin and keeps it through focus updates. Repeated prefixes collapse to one, and a title
+title the session has now and prints nothing once it is prefixed. Repeated prefixes collapse to one, and a title
 still carrying the bare "(g) " of older versions is upgraded. A watched session (marker `watched`) gets WATCHED_PREFIX
 the same way (override: SESSION_GUIDE_WATCHED_PREFIX); `guided` and `watched` swap one prefix for the other. `unguided`
 (marker `unguided`) takes either prefix off on the next prompt, after which the hook drops the marker. A guide or a
@@ -47,6 +46,10 @@ retired guide is never prefixed: `guided` and `watched` refuse them, and `mark` 
 A closed session (marker `done`, from `done <id>`: the guide closed a finished or obsolete worker) gets DONE_PREFIX in
 place of the guided prefix (override: SESSION_GUIDE_DONE_PREFIX), the same way. `guided`, `watched` and `mark` refuse
 it, so it is never orange, gray or red again; `done` refuses a guide or a retired guide (retire a guide instead).
+The session-titles plugin answers the same hook events later and its title wins, so the prefix also goes into its
+stored origin ($CLAUDE_CONFIG_DIR/session-titles/<session id>.json), whenever a marker is written and on every prompt:
+then both hooks give the same title. Guides and retired guides get its `off` flag instead. No state file, no change.
+
 --session (and the <id> of retire / guided / watched / unguided) defaults to $CLAUDE_CODE_SESSION_ID and may be an id
 prefix.
 Python 3 stdlib only.
@@ -174,6 +177,8 @@ def cmd_hook():
         event = json.load(sys.stdin)
         sid = event["session_id"]
         current = (event.get("session_title") or "").strip()
+        if marker_content(sid):
+            sync_session_titles(sid, marker_content(sid))
         title = title_for(sid, current)
         if marker_content(sid) == UNGUIDED and current and not title:
             os.remove(marker(sid))  # the prefix is off: nothing left to undo
@@ -265,6 +270,37 @@ def write_marker(session_id, content):
     os.makedirs(os.path.dirname(marker(session_id)), exist_ok=True)
     with open(marker(session_id), "w") as f:
         f.write(content + "\n")
+    sync_session_titles(session_id, content)
+
+
+def sync_session_titles(session_id, content):
+    """Make session-titles give the title we want, since its hook's answer overrides ours. Best effort."""
+    home = os.path.join(config_dir(), "session-titles")
+    path = os.path.join(home, session_id + ".json")
+    if not os.path.isfile(path):
+        return
+    try:
+        import fcntl  # not on Windows: the except below skips the sync there
+        os.makedirs(os.path.join(home, "locks"), exist_ok=True)
+        with open(os.path.join(home, "locks", session_id + ".lock"), "w") as lock:  # the one session-titles takes
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            with open(path) as f:
+                state = json.load(f)
+            before = json.dumps(state)
+            if content in (GUIDED, WATCHED, UNGUIDED, DONE):
+                state["origin"] = worker_title(content, state.get("origin") or "") or state.get("origin") or ""
+                last_set = worker_title(content, state.get("last_set") or "")
+                if last_set:  # a resume restores last_set; keep the old one known, so it isn't read as a rename
+                    state["history"] = (state.get("history") or []) + [last_set]
+                    state["last_set"] = last_set
+            else:
+                state["off"] = True
+            if json.dumps(state) != before:
+                with open(path + ".tmp", "w") as f:
+                    json.dump(state, f, ensure_ascii=False, indent=1)
+                os.replace(path + ".tmp", path)
+    except Exception:  # fail open, like the hook: a title is never worth an error
+        pass
 
 
 def main(argv=None):

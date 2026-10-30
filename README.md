@@ -160,8 +160,8 @@ Every WATCHED session's title starts with `⬜⬜ `, from `guide_title.py watche
 - The plugin install registers the hook for you. A plain-skill install prints the `settings.json` snippet to add
   ([examples/settings-snippet.json](examples/settings-snippet.json)).
 - If you use [session-titles](https://github.com/jachai/session-titles), the guide also runs
-  `session-titles off <its id>` so the two hooks don't take turns. Guided and watched sessions keep session-titles on: it reads the
-  prefixed title as a rename and keeps the prefix in the origin from then on.
+  `session-titles off <its id>` so the two hooks don't take turns. Guided and watched sessions keep session-titles on: its hook's title
+  overrides this one, so `guide_title.py` also puts the prefix into its stored origin, and both give the same title.
 - To use your own format, set `SESSION_GUIDE_TITLE`, for example `"guide {managed}/{watched}/{new}"`, in the `env`
   block of `settings.json` (`{active}` is managed + watched). Avoid `*`, because some title tools strip markdown, and
   keep it short, because the agents view and claude-top cut long names. claude-top spots a guide by its marker file

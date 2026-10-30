@@ -235,6 +235,63 @@ class GuideTitleTest(unittest.TestCase):
         self.assertEqual(self.run_script("mark", self.ledger, "--session", WORKER).returncode, 0)
         self.assertEqual(self.worker_title("⬜⬜ billing lead"), TITLE)
 
+    def titles_state(self, session_id=WORKER, **state):
+        """Write a session-titles state file, the way that plugin does; returns a function that reads it back."""
+        path = os.path.join(self.cfg, "session-titles", session_id + ".json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(state, f)
+        return lambda: json.load(open(path))
+
+    def test_guided_goes_into_the_session_titles_origin(self):
+        read = self.titles_state(origin="billing lead", focus="Waiting on CI", last_set="billing lead · Waiting on CI",
+                                 history=["billing lead · Waiting on CI"])
+        self.run_script("guided", WORKER)
+        state = read()
+        self.assertEqual(state["origin"], "🟧🟧 (g) billing lead")
+        self.assertEqual(state["focus"], "Waiting on CI")
+        self.assertEqual(state["last_set"], "🟧🟧 (g) billing lead · Waiting on CI")
+        self.assertIn("billing lead · Waiting on CI", state["history"])  # its title now still reads as its own
+
+    def test_session_titles_origin_follows_every_level_change(self):
+        read = self.titles_state(origin="(g) billing lead", last_set="(g) billing lead")
+        self.run_script("guided", WORKER)
+        self.assertEqual(read()["origin"], "🟧🟧 (g) billing lead")  # an origin adopted from the old prefix upgrades
+        self.run_script("watched", WORKER)
+        self.assertEqual(read()["origin"], "⬜⬜ billing lead")
+        self.run_script("unwatched", WORKER)
+        self.assertEqual(read()["origin"], "billing lead")
+        self.run_script("guided", WORKER)
+        self.run_script("done", WORKER)
+        self.assertEqual(read()["origin"], "✅ billing lead")
+
+    def test_the_hook_syncs_a_session_marked_before_this_version(self):
+        self.run_script("guided", WORKER)
+        read = self.titles_state(origin="billing lead", last_set="billing lead")
+        self.assertEqual(self.worker_title("billing lead"), "🟧🟧 (g) billing lead")
+        self.assertEqual(read()["origin"], "🟧🟧 (g) billing lead")
+
+    def test_guides_and_retired_guides_turn_session_titles_off(self):
+        read = self.titles_state(GUIDE, origin="old name")
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        self.assertTrue(read()["off"])
+        self.assertEqual(read()["origin"], "old name")
+        read = self.titles_state(GUIDE, origin="old name")
+        self.run_script("retire", GUIDE)
+        self.assertTrue(read()["off"])
+
+    def test_no_or_broken_session_titles_state_changes_nothing(self):
+        self.assertEqual(self.run_script("guided", WORKER).returncode, 0)
+        self.assertFalse(os.path.exists(os.path.join(self.cfg, "session-titles")))
+        path = os.path.join(self.cfg, "session-titles", WORKER + ".json")
+        os.makedirs(os.path.dirname(path))
+        with open(path, "w") as f:
+            f.write("{broken")
+        self.assertEqual(self.run_script("guided", WORKER).returncode, 0)
+        self.assertEqual(self.worker_title("billing lead"), "🟧🟧 (g) billing lead")
+        with open(path) as f:
+            self.assertEqual(f.read(), "{broken")
+
     def test_an_empty_or_unknown_id_is_an_error_not_this_session(self):
         for cmd in ("guided", "unguided", "retire"):
             for sid in ("", "  ", "deadbeef"):

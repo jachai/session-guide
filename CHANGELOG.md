@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-30
+
+### Fixed
+
+- The guided, watched and closed prefixes now show up on sessions running the session-titles plugin. Its hook's title
+  overrode this one on most prompts, so the prefix only appeared when it had nothing to say. `guide_title.py` now
+  writes the prefix into its stored origin, so both hooks give the same title.
+- Marking or retiring a guide turns session-titles off for that session, so nothing overrides its red or faded red
+  title.
+
 ## [0.1.5] - 2026-10-30
 
 ### Added
