@@ -60,14 +60,19 @@ to `unguided`: the hook strips the prefix on the next prompt, then deletes the m
 a ledger path or `retired`, so they never get the prefix.
 
 A WATCHED session works the same way with the marker `watched` and the prefix "⬜⬜ " (`guide_title.py watched`), so
-a light gray row is a session the guide only reads. Anything else that reads these markers must treat a keyword it
+a light gray row is a session the guide only reads. An ACTIVE session has the marker `active` and the prefix "🟦🟦 ":
+running, but the guide neither reads nor messages it. Anything else that reads these markers must treat a keyword it
 doesn't know as "not a guide": only a path is a guide.
 
 ## Sweeps and closing
 
-Every wake starts with `claude-top --once -n 30`. A session active in the last 12 hours with no row in the ledger is
-new: the guide writes the count into the ledger header (`New: <n>`, which its title shows) and asks about all of them
-in one line, with a recommendation for each. A WATCHED session that asks a question gets it put to the user, and the
+On every prompt the guide gets, the title hook runs a sweep (`guide_title.py sweep`), reading transcripts directly. A
+session active in the last 12 hours with no row in the ledger is new: the title shows the live count, and the list
+goes to the guide with each prompt until every session on it has a row. That list can't drift and needs no other
+tool. The guide keeps a wake scheduled while any session is active, because nothing wakes it when a session starts.
+
+Everything the guide needs from you goes through `AskUserQuestion`, not text: new sessions (Manage / Watch / Leave
+active / Ignore), decisions, approvals it can relay, and Done / Not yet for what only you can do. A WATCHED session that asks a question gets it put to the user, and the
 answer relayed back in one message, its only one.
 
 A MANAGED session that is finished or obsolete is closed, the way a guide is retired: `guide_title.py done <id>`

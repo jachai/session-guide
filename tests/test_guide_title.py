@@ -6,13 +6,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "skills", "session-guide", "scripts", "guide_title.py")
 GUIDE = "c0ffee12-3456-4789-8abc-def012345678"
 WORKER = "fa11ed00-1234-4567-89ab-cdef01234567"
-TITLE = "🟥🟥 Sessions Manager (2 managed · 1 watched · 0 new) 🟥🟥"
+TITLE = "🟥🟥 Sessions Manager (2 managed · 1 watched · 0 active · 0 new) 🟥🟥"
 LEDGER = """# release-2026-10-27 — guide ledger
 Guide: 'release guide' [c0ffee12] since 10-27 09:00
 
@@ -49,7 +50,7 @@ class GuideTitleTest(unittest.TestCase):
     def run_script(self, *args, stdin="", **extra_env):
         env = {k: v for k, v in os.environ.items()
                if k not in ("CLAUDE_CODE_SESSION_ID", "SESSION_GUIDE_TITLE", "SESSION_GUIDE_GUIDED_PREFIX",
-                            "SESSION_GUIDE_DONE_PREFIX", "SESSION_GUIDE_WATCHED_PREFIX")}
+                            "SESSION_GUIDE_DONE_PREFIX", "SESSION_GUIDE_WATCHED_PREFIX", "SESSION_GUIDE_ACTIVE_PREFIX")}
         env.update(CLAUDE_CONFIG_DIR=self.cfg, **extra_env)
         return subprocess.run([sys.executable, SCRIPT] + list(args), input=stdin, capture_output=True, text=True,
                               env=env)
@@ -83,12 +84,12 @@ class GuideTitleTest(unittest.TestCase):
         self.run_script("mark", self.ledger, "--session", GUIDE)
         with open(self.ledger, "w") as f:
             f.write(LEDGER.replace("| design spike [b5c6d7] | WATCHED", "| design spike [b5c6d7] | MANAGED"))
-        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager (3 managed · 0 watched · 0 new) 🟥🟥")
+        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager (3 managed · 0 watched · 0 active · 0 new) 🟥🟥")
 
     def test_title_format_can_be_overridden(self):
         self.run_script("mark", self.ledger, "--session", GUIDE)
         stdin = json.dumps({"session_id": GUIDE, "hook_event_name": "UserPromptSubmit"})
-        r = self.run_script("hook", stdin=stdin, SESSION_GUIDE_TITLE="guide {managed}/{active}")
+        r = self.run_script("hook", stdin=stdin, SESSION_GUIDE_TITLE="guide {managed}/{tracked}")
         self.assertEqual(json.loads(r.stdout)["hookSpecificOutput"]["sessionTitle"], "guide 2/3")
         r = self.run_script("hook", stdin=stdin, SESSION_GUIDE_TITLE="guide {oops}")
         self.assertEqual((r.returncode, r.stdout), (0, ""))
@@ -317,13 +318,77 @@ class GuideTitleTest(unittest.TestCase):
         self.assertEqual(self.run_script("mark", self.ledger, "--session", WORKER).returncode, 0)
         self.assertEqual(self.worker_title("(g) billing lead"), TITLE)
 
-    def test_new_count_comes_from_the_ledger_header(self):
+    def transcript(self, session_id, title="", entrypoint="cli", age=0):
+        path = os.path.join(self.cfg, "projects", "-tmp-repo", session_id + ".jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(json.dumps({"type": "user", "entrypoint": entrypoint}) + "\n")
+            f.write(json.dumps({"type": "custom-title", "customTitle": title}) + "\n")
+        os.utime(path, (time.time() - age, time.time() - age))
+
+    def test_new_count_and_context_come_from_a_live_sweep(self):
         self.run_script("mark", self.ledger, "--session", GUIDE)
-        with open(self.ledger, "w") as f:
-            f.write(LEDGER.replace("since 10-27 09:00\n", "since 10-27 09:00\nNew: 3 (untracked, active <12h; 12:10)\n")
-                    + "New: 9 (outside the header: not counted)\n")
-        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager (2 managed · 1 watched · 3 new) 🟥🟥")
-        self.assertEqual(self.guide_title(SESSION_GUIDE_TITLE="{managed}/{watched}/{new} of {active}"), "2/1/3 of 3")
+        self.assertNotIn("additionalContext", self.hook().stdout)
+        self.transcript(GUIDE, "the guide itself")
+        self.transcript("3fa9c1d2-0000-4000-8000-000000000000", "has a row")
+        self.transcript("b5c6d7e8-0000-4000-8000-000000000000", "watched row")
+        self.transcript("11111111-0000-4000-8000-000000000000", "too old", age=13 * 3600)
+        self.transcript("22222222-0000-4000-8000-000000000000", "a monitor tick", entrypoint="sdk-cli")
+        self.transcript("33333333-0000-4000-8000-000000000000", "closed one")
+        self.run_script("done", "33333333-0000-4000-8000-000000000000")
+        self.transcript("44444444-0000-4000-8000-000000000000", "new one")
+        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager (2 managed · 1 watched · 0 active · 1 new) 🟥🟥")
+        output = json.loads(self.hook().stdout)["hookSpecificOutput"]
+        self.assertIn("'new one' [44444444]", output["additionalContext"])
+        self.assertIn("AskUserQuestion", output["additionalContext"])
+        for hidden in ("has a row", "watched row", "too old", "a monitor tick", "closed one", "the guide itself"):
+            self.assertNotIn(hidden, output["additionalContext"])
+        r = self.run_script("sweep", self.ledger, "--hours", "24", CLAUDE_CODE_SESSION_ID=GUIDE)
+        self.assertIn("'too old' [11111111]", r.stdout)
+        self.assertIn("New: 2", r.stdout)
+
+    def test_a_new_session_stays_new_until_it_has_a_row(self):
+        new = "44444444-0000-4000-8000-000000000000"
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        self.transcript(new, "new one")
+        self.assertEqual(self.run_script("active", new).returncode, 0)  # blue already, still unanswered
+        self.assertIn("[44444444]", self.hook().stdout)
+        with open(self.ledger, "a") as f:
+            f.write("\n## Sessions\n| new one [444444] | ACTIVE | | | | | |\n")
+        self.assertNotIn("additionalContext", self.hook().stdout)
+        self.assertIn("1 active · 0 new", self.guide_title())
+
+    def test_workers_and_retired_guides_get_no_sweep(self):
+        self.transcript("44444444-0000-4000-8000-000000000000", "new one")
+        self.run_script("guided", WORKER)
+        self.assertNotIn("additionalContext", self.hook(WORKER, title="billing lead").stdout)
+        self.run_script("retire", GUIDE)
+        self.assertNotIn("additionalContext", self.hook().stdout)
+
+    def test_active_session_gets_the_blue_blocks(self):
+        self.assertEqual(self.run_script("active", WORKER).returncode, 0)
+        self.assertEqual(self.worker_title("notes cleanup"), "🟦🟦 notes cleanup")
+        self.assertIsNone(self.worker_title("🟦🟦 notes cleanup"))
+        self.run_script("watched", WORKER)
+        self.assertEqual(self.worker_title("🟦🟦 notes cleanup"), "⬜⬜ notes cleanup")
+        self.run_script("active", WORKER)
+        self.assertEqual(self.worker_title("🟧🟧 (g) notes cleanup"), "🟦🟦 notes cleanup")
+        self.assertEqual(self.worker_title("notes", SESSION_GUIDE_ACTIVE_PREFIX="[a] "), "[a] notes")
+        self.run_script("unguided", WORKER)
+        self.assertEqual(self.worker_title("🟦🟦 notes cleanup"), "notes cleanup")
+
+    def test_active_refuses_guides_retired_guides_and_closed_sessions(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        self.assertNotEqual(self.run_script("active", GUIDE).returncode, 0)
+        self.run_script("retire", GUIDE)
+        self.assertNotEqual(self.run_script("active", GUIDE).returncode, 0)
+        self.run_script("done", WORKER)
+        self.assertNotEqual(self.run_script("active", WORKER).returncode, 0)
+
+    def test_title_placeholders(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        self.assertEqual(self.guide_title(SESSION_GUIDE_TITLE="{managed}/{watched}/{active}/{new} of {tracked}"),
+                         "2/1/0/0 of 3")
 
     def test_done_session_gets_the_check_prefix_in_place_of_g(self):
         self.run_script("guided", WORKER)

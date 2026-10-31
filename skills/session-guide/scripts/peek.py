@@ -16,7 +16,7 @@ import os
 import sys
 import time
 
-__version__ = "0.1.6"
+__version__ = "0.1.7"
 
 
 def find(prefix):

@@ -46,8 +46,9 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
   Browser checks, test batteries on shared environments, and database and log checks belong to a worker or to the
   user. Ask a worker to run them, or tell the user what to click.
 - **Name sessions by title,** with the short id in brackets: 'billing export lead' [3fa9c1]. Never a bare id.
-- **One ask per turn** to the user, in plain words. A money or business-rule decision always comes with a worked
-  numeric example and your recommendation first. Use no internal plan codes unless the user used them first.
+- **Interview, don't announce.** Anything left for the user ends your turn in `AskUserQuestion`, never in text (§4,
+  The interview). Ask in plain words. A money or business-rule decision always comes with a worked numeric example
+  and your recommendation first. Use no internal plan codes unless the user used them first.
 - **Workers never AskUserQuestion the user.** Their decisions come to you (§4).
 
 ### 2. Start (fresh guide or takeover)
@@ -69,15 +70,16 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
 4. Classify every session you see that isn't in the ledger. Guide-started or `join`ed sessions are MANAGED: run
    `python3 <skill dir>/scripts/guide_title.py guided <session id>` on each, so its title starts with "🟧🟧 (g) " (a
    repeat is harmless). Run `guide_title.py watched <session id>` on each WATCHED row, so its title starts with
-   "⬜⬜ ". The rest go through the sweep (§7): one batched manage / watch / ignore line in your next ask.
+   "⬜⬜ ", and `guide_title.py active <session id>` on each ACTIVE row, so it starts with "🟦🟦 ". The rest go through
+   the sweep (§7) and into your first interview.
 5. Introduce yourself to every MANAGED worker in **one** message (§3). Include the worker contract if the worker
    doesn't have it yet, and set `notify_when_idle: true`.
 6. Pin your title: `python3 <skill dir>/scripts/guide_title.py mark <ledger path>`. From your next prompt the title
-   hook keeps it at "🟥🟥 Sessions Manager (2 managed · 1 watched · 3 new) 🟥🟥" (MANAGED rows, WATCHED rows, and
-   the `New:` count in the ledger header) and undoes any rename. If the session-titles plugin is installed, also
+   hook keeps it at "🟥🟥 Sessions Manager (2 managed · 1 watched · 3 active · 1 new) 🟥🟥" (the rows at each level,
+   and the live count of sessions with no row) and undoes any rename. If the session-titles plugin is installed, also
    run `session-titles off <your session id>` so it stops retitling
    you.
-7. Reply to the user in the status shape (§5).
+7. Reply to the user in the status shape (§5), then open the interview (§4).
 8. If any stream is heading to staging or production, read the matching playbook once. That is your own
    `<config>/session-guide/playbooks/*.md` if one fits, else `references/release-playbook.md`.
 
@@ -95,14 +97,17 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
   stand in for a worker's own context limit. A worker over its limit hands off, and you start its successor (§6).
 - Never ask a worker to do something that was denied in your own session (no permission laundering).
 - WATCHED sessions: read them, never message them, with one exception. When peek shows a WATCHED session's
-  **unanswered question**, put it in your next ask to the user (its words, your recommendation first). Relay the
+  **unanswered question**, put it in your next interview (its words, your recommendation first). Relay the
   answer in one message, "ANSWER (the user's, relayed by the guide): …", and nothing else: relaying is a message,
   and it is the only one a WATCHED session gets. It stays WATCHED. If the question is an open dialog
   (AskUserQuestion, a permission or guard prompt), a message can't answer it: list "answer <title> [id6] in its own
   window" under **Needs you now**.
+- ACTIVE sessions are running, but you neither manage nor watch them: never peek or message them, and keep only their
+  row (the state and last-active time the sweep or ListAgents shows). Drop the row once it has been inactive over
+  12 h. An ACTIVE session the user asks you to follow changes level through the interview.
 - Titles follow the level, one color per kind: 🟥🟥 the active guide, 🎟️🎟️ a retired guide, 🟧🟧 (g) MANAGED,
-  ⬜⬜ WATCHED, none IGNORED, ✅ closed. Whenever a session's level is set or changes, run `guide_title.py guided`,
-  `watched` or `unguided` (IGNORED) on its session id; each one replaces the prefix it had. Guides and retired
+  ⬜⬜ WATCHED, 🟦🟦 ACTIVE, none IGNORED, ✅ closed. Whenever a session's level is set or changes, run
+  `guide_title.py guided`, `watched`, `active` or `unguided` (IGNORED) on its session id; each one replaces the prefix it had. Guides and retired
   guides never get one.
 
 ### 4. Decisions
@@ -127,9 +132,28 @@ item as "whenever you want" or FYI.
    or "new session (proposed)" not yet started: at most 4 per ask, oldest first, each phrased as your recommended
    owner + action ("Start 'billing rounding fix' from develop to fix the 0.01 rounding on split invoices? (yes
    recommended)"). An item about money or a business rule carries a worked numeric example. Items past the 4 wait
-   for the next ask; say how many are left.
+   for the next round of the interview.
 4. On the answer: write the owner into the row, relay the action to that session (or start the new session, §6), and
    log it. A "no" removes the row or makes the user its owner, as the user says.
+
+**The interview.** A question, decision or approval in your text is one the user can miss, so never end a turn on
+one. Everything you need from the user goes through `AskUserQuestion`:
+1. **Same turn.** Write the status in text if it changed (§5), then call the tool. Finish your relays and ledger writes
+   first: while a dialog is open, you are likely paused and worker messages wait.
+2. **Each question stands alone,** because the user may see only the dialog: session title [id6], the full link or
+   `!` command, what you checked. Recommended option first.
+3. **Order:** approvals a worker is blocked on, decisions, new sessions, open items. At most 4 questions per call.
+   When the user answers, open the next round straight away until nothing is left.
+4. **Shapes:**
+   - New session: Manage / Watch / Leave active / Ignore. It gets a row at that level, and its title follows (§3).
+   - Approval you can relay (a cost-guard `guard ok`, a go-ahead): Approve / Not now. On Approve, relay it and log it
+     as a decision. It unblocks only what the user approved (§3).
+   - Something only the user can do (a merge, a `!` command, a dialog open in another session's window, which a relay
+     can't answer): the question carries the link or command, with Done / Not yet. On Done, verify it. On Not yet,
+     keep it under **Needs you now** and ask again at the next wake that has news on it.
+5. **Unanswered means ask again,** at the next wake. Nothing is settled by your having mentioned it.
+6. **Fallback.** Only when the tool is refused or unavailable (a `claude -p` run), put the question in your text and
+   end with a line `needs input: <exactly what you need>`.
 
 ### 5. Status reply ("what's next", "where do we stand", and every wake that changes something)
 ```
@@ -139,17 +163,16 @@ item as "whenever you want" or FYI.
 **Streams**
 - <stream>: <where it is> → next: <action> (<session title [id6]> or you)
 **Proposed actions**
-1. <action> on <session title [id6]>, or: start a new session '<title>' for <item> — yes/no?
+1. <action> on <session title [id6]>, or: start a new session '<title>' for <item>
 **Running on its own**
 - <what>, next check ~HH:MM
-Decision pending: <one line, or none>
 Guide context: <N>k (hand off at 120k)
 ```
 - "Needs you now" lists only the user's actions, most urgent first. A merge comes with its PR link and what you
   checked (checks green, mergeable, deploy queue clear).
 - Every Streams line ends with "→ next: <action> (owner)". A stream with no next action is DONE or gets one.
 - "Proposed actions" lists the actions you suggest on active sessions and the new sessions you suggest starting,
-  each answerable with a yes or a no in your next ask (§4, Open items). Nothing in the reply is a passive list:
+  each put to the user as a question in the interview that follows (§4). Nothing in the reply is a passive list:
   every line is either the user's action, a stream's next action with its owner, or a proposed action.
 - Mark something DONE only once it is verified (deploy job green, or the worker's evidence), and say how.
 - The last line goes in every status reply, read from your own row in `claude-top --once`
@@ -175,23 +198,25 @@ Guide context: <N>k (hand off at 120k)
   4. Set its row's Level to DONE in the ledger's Sessions table.
 
 ### 7. Waiting and wakeups
-- **Sweep on every wake**: `claude-top --once -n 30` (or `ListAgents`). A session active in the last 12 h that has
-  no row in the ledger's Sessions table is new. Write the count into the ledger header as `New: <n>` (the title shows
-  it), and put all of them in ONE line of your next ask, each with your recommendation: "New sessions: 'X' [id6]
-  (manage: it is building the billing fix), 'Y' [id6] (ignore: personal notes). Manage, watch or ignore?" Ask about
-  a session once; it stays counted in `New:` until the user answers, then it gets a row at the level they chose, and
-  its title follows (§3).
+- **Sweep on every turn**: a session active in the last 12 h with no row in the ledger's Sessions table is new. The
+  title hook lists them at the top of each of your prompts and shows the count in your title; run
+  `python3 <skill dir>/scripts/guide_title.py sweep <ledger>` if you didn't get that list. It needs neither
+  claude-top nor ListAgents. Run `guide_title.py active <session id>` on each, so it shows blue at once, peek it so you
+  can recommend, and put it in this turn's interview (§4): "'X' [id6] is building the billing fix: manage it?" It
+  stays new, and you keep asking, until the user picks a level.
 - **Open items on every wake**: re-check the reports and handoffs that arrived since the last wake for new items
-  (§4, Open items), then put the rows still marked ASK or "new session (proposed)" into your next ask, at most 4,
-  next to the new-sessions line.
+  (§4, Open items), then put the rows still marked ASK or "new session (proposed)" into the interview.
 - For an imminent event (the user's merge, a deploy job, CI finishing), schedule a wakeup in +5 min. For a long
   run (a full CI run, a test battery, a helper lane), use +10 min. Subscribe with `notify_when_idle` too: the notice
   is a hint, not a guarantee.
-- When only the user can unblock things: remind once, then wait +30 and +60 min. After two hourly wakes that found
-  nothing to do, stop scheduling until the user speaks.
-- Keep the wake prompt short and rebuild it from the ledger each time: "Guide wake: read ledger <path>; sweep
-  `claude-top --once -n 30` for new sessions; peek <ids>; check <PRs/runs>; owner-less open items into the ask;
-  advise with your context size, or reschedule." Don't let it accumulate history.
+- **Always keep a wake scheduled while any session was active in the last 2 h,** even with nothing to wait for: it is
+  how you notice new sessions, since nothing wakes you when one starts. Back off +30, then +60 at most, when nothing
+  changes. Stop only after 2 h with no active session; the hook catches anything new on the user's next prompt.
+- If `ScheduleWakeup` is refused or missing, use a one-shot `CronCreate`. If you have neither, say so once in your
+  status: you will only see new sessions when the user messages you.
+- Keep the wake prompt short and rebuild it from the ledger each time: "Guide wake: read ledger <path>; new sessions
+  from the hook's list; peek <ids>; check <PRs/runs>; advise with your context size; interview for anything left for
+  the user; reschedule." Don't let it accumulate history.
 - Never poll with `sleep` or `--watch`. One CI read per wake.
 
 ### 8. Handoff (at 120k context, or when the user asks)
@@ -208,4 +233,4 @@ Guide context: <N>k (hand off at 120k)
 ### 9. Notes and skills
 - If you keep memory notes, keep ONE pointer per effort ("<slug> guide ledger: <path>"), updated in place and never
   appended to. The ledger is the state.
-- Skill edits that a worker or you propose go under "Decision pending". Apply them only after the user says yes.
+- Skill edits that a worker or you propose go in the interview. Apply them only after the user says yes.

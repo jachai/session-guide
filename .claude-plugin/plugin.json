@@ -1,6 +1,6 @@
 {
   "name": "session-guide",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Turn one Claude Code session into the guide for your parallel sessions: one ledger, decisions routed through it, relays to workers, self-paced wakeups, and clean guide-to-guide handoffs.",
   "author": {
     "name": "Jonathan Achai",

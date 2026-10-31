@@ -5,6 +5,27 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-31
+
+### Added
+
+- An ACTIVE level for sessions that are running but neither managed nor watched: `guide_title.py active <id>` puts
+  blue blocks, "🟦🟦 ", before the title (override: `SESSION_GUIDE_ACTIVE_PREFIX`). The guide's title counts them.
+- `guide_title.py sweep`: lists recently active sessions with no ledger row, reading transcripts directly, so it
+  needs neither claude-top nor ListAgents. `claude -p` runs are left out.
+
+### Changed
+
+- The guide interviews. Anything it needs from you ends its turn in `AskUserQuestion`: new sessions, decisions,
+  approvals it can relay, and Done / Not yet for what only you can do. Text is the fallback only when the tool is
+  refused or unavailable, and an unanswered question is asked again.
+- The title hook gives the guide the list of new sessions on every prompt, until each has a row, instead of relying on
+  a sweep at wake time. The title's `new` count is live, so the ledger's `New:` line is gone.
+- The guide keeps a wake scheduled while any session was active in the last 2 h, instead of stopping after two idle
+  hourly wakes. It falls back to `CronCreate` when `ScheduleWakeup` is unavailable.
+- In `SESSION_GUIDE_TITLE`, `{active}` now counts ACTIVE rows. Use the new `{tracked}` for what it used to mean,
+  managed + watched.
+
 ## [0.1.6] - 2026-10-30
 
 ### Fixed

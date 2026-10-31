@@ -51,7 +51,7 @@ had a rule for it:
 | The guide sits idle while a deploy finishes, or wakes every 10 minutes all night. | +5 min wakeups for imminent events and +10 for long runs. When only you can unblock things, it backs off to +30 and +60, then stops. |
 | A guide runs out of context mid-relay. | It prints its own context size in every status reply and hands off at 120k: ledger current, wakeups cancelled, a one-line prompt for the next guide. |
 | A worker's report says "not fixed, out of scope". Nobody picks it up, and the guide lists it as "open, whenever you want". | After every report the guide adds each loose end to an Open items table with an owner: a session, a new session it proposes, or you. Owner-less items go into the next interview, at most 4 at a time, each as a recommended owner + action you answer yes or no. |
-| New sessions pile up unclassified, and finished ones sit "waiting" forever. | Every wake sweeps sessions active in the last 12 h and asks you once, in one line, whether to manage, watch or ignore each new one. Finished or obsolete workers are closed: ✅ title, `result:` line, state done, or a `! claude stop` for you when they are stuck. |
+| New sessions pile up unclassified, and finished ones sit "waiting" forever. | Every prompt sweeps sessions active in the last 12 h, and the guide keeps interviewing you until each new one is managed, watched, left active or ignored. Finished or obsolete workers are closed: ✅ title, `result:` line, state done, or a `! claude stop` for you when they are stuck. |
 
 ## Install
 
@@ -98,7 +98,8 @@ leave` opts it back out. Sessions the guide starts itself are managed automatica
 | Level | How a session gets it | What the guide does |
 |---|---|---|
 | **MANAGED** | `/session-guide join`, or started by the guide | Sends the contract, relays rulings and approvals, takes its questions. Its title starts with "🟧🟧 (g) " |
-| **WATCHED** | Any other session the guide sees (the default) | Reads it for status. Asks you once: manage, watch or ignore? Its only message from the guide is your answer to a question it asked. Its title starts with "⬜⬜ " |
+| **WATCHED** | You picked Watch in the interview | Reads it for status. Its only message from the guide is your answer to a question it asked. Its title starts with "⬜⬜ " |
+| **ACTIVE** | Any other running session, and every new one until you answer | Keeps its row only: no reading, no messages. Its title starts with "🟦🟦 " |
 | **IGNORED** | You said so | Leaves it alone |
 | **RETIRED** | A guide that handed over to a new one | Nothing: faded red title, state done |
 | **DONE** | A MANAGED session the guide closed (finished or obsolete) | Nothing: "✅ " title, state done |
@@ -112,9 +113,10 @@ One color per kind of session, so the agents view reads at a glance:
 
 | Title | Session |
 |---|---|
-| `🟥🟥 Sessions Manager (2 managed · 1 watched · 3 new) 🟥🟥` | The active guide |
+| `🟥🟥 Sessions Manager (2 managed · 1 watched · 3 active · 1 new) 🟥🟥` | The active guide |
 | `🎟️🎟️ Sessions Manager (retired) 🎟️🎟️` | A retired guide |
 | `⬜⬜ design spike · Reading the diff` | WATCHED: the guide reads it but doesn't manage it |
+| `🟦🟦 notes cleanup · Tidying the index` | ACTIVE: running, neither managed nor watched |
 | `🟧🟧 (g) billing export lead · Waiting on CI` | MANAGED: guided, you don't need to go in |
 | `✅ search reindex lead · PR merged` | Closed by the guide |
 
@@ -126,11 +128,11 @@ varies by platform; override it with `SESSION_GUIDE_RETIRED_TITLE`.
 The guide keeps one title, so you can always find it in the agents view:
 
 ```
-🟥🟥 Sessions Manager (2 managed · 1 watched · 3 new) 🟥🟥
+🟥🟥 Sessions Manager (2 managed · 1 watched · 3 active · 1 new) 🟥🟥
 ```
 
-managed and watched count the ledger's MANAGED and WATCHED rows. new is the guide's count of sessions active in the
-last 12 h that have no ledger row yet, which it writes into the ledger header (`New: 3`) on every sweep. At start the
+managed, watched and active count the ledger's rows at those levels. new is the count of sessions active in the
+last 12 h that have no ledger row yet, counted live on every prompt. At start the
 guide runs
 `scripts/guide_title.py mark <ledger>`. A `UserPromptSubmit` and `SessionStart` hook then re-applies the title on
 every prompt, with fresh counts, so a rename (by hand or by another titling hook) lasts one turn at most. Every other
@@ -155,7 +157,8 @@ it off. The guide and a retired guide never get it. Override the prefix with `SE
 
 Every WATCHED session's title starts with `⬜⬜ `, from `guide_title.py watched <id>`, with the same behavior:
 `guided` and `watched` swap one prefix for the other when a session changes level. Override it with
-`SESSION_GUIDE_WATCHED_PREFIX`.
+`SESSION_GUIDE_WATCHED_PREFIX`. ACTIVE works the same way with `guide_title.py active <id>` and
+`SESSION_GUIDE_ACTIVE_PREFIX`.
 
 - The plugin install registers the hook for you. A plain-skill install prints the `settings.json` snippet to add
   ([examples/settings-snippet.json](examples/settings-snippet.json)).
@@ -163,7 +166,7 @@ Every WATCHED session's title starts with `⬜⬜ `, from `guide_title.py watche
   `session-titles off <its id>` so the two hooks don't take turns. Guided and watched sessions keep session-titles on: its hook's title
   overrides this one, so `guide_title.py` also puts the prefix into its stored origin, and both give the same title.
 - To use your own format, set `SESSION_GUIDE_TITLE`, for example `"guide {managed}/{watched}/{new}"`, in the `env`
-  block of `settings.json` (`{active}` is managed + watched). Avoid `*`, because some title tools strip markdown, and
+  block of `settings.json` (`{tracked}` is managed + watched). Avoid `*`, because some title tools strip markdown, and
   keep it short, because the agents view and claude-top cut long names. claude-top spots a guide by its marker file
   and falls back to the `🟥🟥 Sessions Manager` start. The closed prefix is `SESSION_GUIDE_DONE_PREFIX`.
 
