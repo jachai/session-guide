@@ -485,6 +485,45 @@ class GuideTitleTest(unittest.TestCase):
         self.assertEqual(json.load(open(path))["name"], "🟧🟧 (g) billing lead")
         self.assertEqual(self.worker_title("🟧🟧 (g) billing lead"), "✅ billing lead")  # resumed: follows the marker
 
+    def test_guide_prompt_renames_a_closed_session_once_its_process_has_ended(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        path = self.job(WORKER, "🟧🟧 (g) billing lead", alive=True)
+        self.run_script("done", WORKER)  # the process is alive: nothing renamed yet
+        self.assertEqual(json.load(open(path))["name"], "🟧🟧 (g) billing lead")
+        context = json.loads(self.hook().stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("CLOSE message: " + WORKER[:8], context)
+        self.assertIn("Held: [%s]" % WORKER[:8], self.run_script("sweep", CLAUDE_CODE_SESSION_ID=GUIDE).stdout)
+        self.assertEqual(json.load(open(path))["name"], "🟧🟧 (g) billing lead")  # a live process is never edited
+        self.job(WORKER, "🟧🟧 (g) billing lead")  # the process ended
+        self.assertNotIn("CLOSE message", self.hook().stdout)
+        self.assertEqual(json.load(open(path))["name"], "✅ billing lead")
+
+    def test_a_held_session_with_a_plain_title_is_not_worth_a_message(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        path = self.job(WORKER, "billing lead", alive=True)
+        self.run_script("done", WORKER)
+        self.assertNotIn("Held", self.run_script("sweep", CLAUDE_CODE_SESSION_ID=GUIDE).stdout)
+        self.assertEqual(json.load(open(path))["name"], "billing lead")
+        self.job(WORKER, "billing lead")  # the process ended
+        self.run_script("sweep", CLAUDE_CODE_SESSION_ID=GUIDE)
+        self.assertEqual(json.load(open(path))["name"], "✅ billing lead")
+
+    def test_sweep_renames_sessions_closed_before_done_could_rename(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        path = self.job(WORKER, "🟧🟧 (g) billing lead")
+        with open(os.path.join(self.cfg, "session-guide", "guides", WORKER), "w") as f:
+            f.write("done\n")
+        self.assertNotIn("Held", self.run_script("sweep", CLAUDE_CODE_SESSION_ID=GUIDE).stdout)
+        self.assertEqual(json.load(open(path))["name"], "✅ billing lead")
+
+    def test_a_worker_prompt_settles_nothing(self):
+        path = self.job(WORKER, "🟧🟧 (g) billing lead")
+        os.makedirs(os.path.join(self.cfg, "session-guide", "guides"), exist_ok=True)
+        with open(os.path.join(self.cfg, "session-guide", "guides", WORKER), "w") as f:
+            f.write("done\n")
+        self.hook(session_id=GUIDE)  # GUIDE has no marker here: not a guide
+        self.assertEqual(json.load(open(path))["name"], "🟧🟧 (g) billing lead")
+
     def test_a_job_that_is_only_done_is_not_closed(self):
         path = self.job(WORKER, "🟧🟧 (g) billing lead")
         self.run_script("guided", WORKER)

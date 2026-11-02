@@ -214,14 +214,20 @@ def describe(session):
 
 
 def guide_context(session_id):
-    """What a guide should hear on this prompt: the sessions it hasn't asked about, and the ones whose rows are DONE
-    but are still marked. None when there are none."""
+    """What a guide should hear on this prompt: the sessions it hasn't asked about, the ones whose rows are DONE but
+    are still marked, and the closed ones a running process keeps at their old title. None when there are none.
+
+    Closed sessions whose process has ended are renamed here too, so a guide's prompts finish what `done` couldn't."""
     content = marker_content(session_id)
     if not content or content in WORKER_MARKERS + (RETIRED, DONE):
         return None
     ledger = os.path.expanduser(content)
-    found, shut = untracked(ledger, session_id), closable(ledger)
+    found, shut, held = untracked(ledger, session_id), closable(ledger), settle_closed()
     parts = []
+    if held:
+        parts.append("session-guide sweep: %d closed session(s) still have a running process, so their titles stay "
+                     "orange until a prompt reaches them. SendMessage each the CLOSE message: %s"
+                     % (len(held), ", ".join(s[:8] for s in held)))
     if found:
         lines = ["- " + describe(s) for s in found[:8]] + ["- and %d more" % (len(found) - 8)] * (len(found) > 8)
         parts.append("session-guide sweep: %d session(s) active in the last 12 h have no row in the ledger's Sessions "
@@ -383,6 +389,8 @@ def cmd_sweep(args):
     print("New: %d" % len(found))
     for sid in closable(os.path.expanduser(ledger)):
         print("Closable: [%s] has only DONE rows but is still marked; run `done %s`" % (sid[:8], sid))
+    for sid in settle_closed():
+        print("Held: [%s] is closed but a process still holds it; SendMessage it the CLOSE message" % sid[:8])
     return 0
 
 
@@ -459,7 +467,8 @@ def retitle_stopped_job(session_id):
         if state.get("sessionId") != session_id or not state.get("name"):
             return None
         if session_alive(session_id):
-            return "its process is still running: its title changes on its next prompt"
+            return ("its process is still running: its title changes on its next prompt (send it CLOSE), or at a guide's "
+                    "next prompt after the process ends")
         name = worker_title(DONE, state["name"])
         if not name:
             return None
@@ -470,6 +479,31 @@ def retitle_stopped_job(session_id):
         return "no process holds it, so its job name was set to %r (an edit of state.json's name; no command renames a finished session)" % name
     except (OSError, ValueError):
         return None
+
+
+def settle_closed():
+    """Finish `done` for every closed session whose job still has its old name: rename it if its process has ended.
+
+    `done` can't rename a session a process still holds, and a closed session never gets another prompt on its own, so
+    the rename has to be retried. Returns the ids a running process holds at a colored title; only a prompt can change
+    those. One with a plain title isn't returned, since a check mark isn't worth a turn: it is renamed when it ends."""
+    held = []
+    for path in glob.glob(os.path.join(config_dir(), "session-guide", "guides", "*")):
+        sid = os.path.basename(path)
+        if marker_content(sid) != DONE:
+            continue
+        try:
+            with open(os.path.join(config_dir(), "jobs", sid[:8], "state.json")) as f:
+                state = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if state.get("sessionId") != sid or not worker_title(DONE, state.get("name") or ""):
+            continue
+        if not session_alive(sid):
+            retitle_stopped_job(sid)
+        elif worker_title(UNGUIDED, state["name"]):  # it has a prefix to take off
+            held.append(sid)
+    return sorted(held)
 
 
 def cmd_done(args):

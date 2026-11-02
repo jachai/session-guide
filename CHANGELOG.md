@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-11-02
+
+### Fixed
+
+- Closed sessions could stay orange for good. `done` tried the rename once: a session whose process was still running
+  (they linger for hours after finishing) was skipped with nothing to retry it, and sessions closed before 0.1.9 were
+  never revisited, because the "Closable" list skips anything already marked `done`. Every guide prompt and every
+  `sweep` now renames closed sessions whose process has ended, and tell the guide to send CLOSE to those a process
+  still holds.
+
 ## [0.1.9] - 2026-11-02
 
 ### Fixed
