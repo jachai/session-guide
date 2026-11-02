@@ -110,14 +110,34 @@ def resolve_session(given):
     return hits.pop()
 
 
+def row_id(cell):
+    """The id6 (or longer) in a Sessions row's first cell, as `[3fa9c1]`: its first 6 characters, or None."""
+    ids = re.findall(r"\[([0-9a-fA-F]{6,36})\]", cell)
+    return ids[-1][:6].lower() if ids else None
+
+
+def closed_ids():
+    """The first 6 characters of every session whose marker says `done`."""
+    found = set()
+    for path in glob.glob(os.path.join(config_dir(), "session-guide", "guides", "*")):
+        try:
+            if open(path).read().strip() == DONE:
+                found.add(os.path.basename(path)[:6].lower())
+        except OSError:
+            pass
+    return found
+
+
 def counts(ledger, session_id=""):
     """{managed, watched, active, new, tracked} from the ledger, or None when it has no ## Sessions table.
 
     managed / watched / active count the Sessions table's rows by Level; new is the live count from untracked();
-    tracked is managed + watched.
+    tracked is managed + watched. A row whose session is closed (marker `done`) doesn't count, and a session named by
+    several rows counts once, at the topmost row's Level. A row with no [id] always counts.
     """
     managed = watched = active = 0
     in_sessions, seen = False, False
+    closed, named = closed_ids(), set()
     for line in open(ledger, errors="replace"):
         if line.startswith("## "):
             in_sessions = line.strip() == "## Sessions"
@@ -128,6 +148,10 @@ def counts(ledger, session_id=""):
         if len(cells) < 2:
             continue
         seen = True
+        rid = row_id(cells[0])
+        if rid and (rid in closed or rid in named):
+            continue
+        named.add(rid)
         level = cells[1].split()[0] if cells[1] else ""
         managed += level == "MANAGED"
         watched += level == "WATCHED"
@@ -343,6 +367,38 @@ def cmd_unguided(args):
     return 0
 
 
+def guide_ledger():
+    """The ledger in this session's guide marker, else the one ledger all guide markers name, else None."""
+    own = marker(os.environ.get("CLAUDE_CODE_SESSION_ID") or "-")
+    found = set()
+    for path in [own] + glob.glob(os.path.join(config_dir(), "session-guide", "guides", "*")):
+        content = open(path).read().strip() if os.path.isfile(path) else ""
+        if content and content not in WORKER_MARKERS + (RETIRED, DONE) and os.path.isfile(os.path.expanduser(content)):
+            if path == own:
+                return os.path.expanduser(content)
+            found.add(os.path.expanduser(content))
+    return found.pop() if len(found) == 1 else None
+
+
+def close_rows(ledger, session_id):
+    """Set the Level of every Sessions row naming `session_id` to DONE; how many rows changed."""
+    want, changed, in_sessions, out = session_id[:6].lower(), 0, False, []
+    for line in open(ledger, errors="replace").read().splitlines(True):
+        if line.startswith("## "):
+            in_sessions = line.strip() == "## Sessions"
+        elif in_sessions and line.lstrip().startswith("|"):
+            parts = line.split("|")
+            if len(parts) > 3 and row_id(parts[1]) == want and parts[2].split()[:1] not in ([], ["DONE"]):
+                parts[2] = re.sub(r"\S+", "DONE", parts[2], count=1)
+                line, changed = "|".join(parts), changed + 1
+        out.append(line)
+    if changed:
+        with open(ledger + ".tmp", "w") as f:
+            f.write("".join(out))
+        os.replace(ledger + ".tmp", ledger)
+    return changed
+
+
 def cmd_done(args):
     sid = resolve_session(args.session)
     content = marker_content(sid)
@@ -350,6 +406,11 @@ def cmd_done(args):
         raise SystemExit("%s is a %sguide; retire it instead" % (sid[:8], "retired " * (content == RETIRED)))
     write_marker(sid, DONE)
     print("%s is closed; %r goes before its title from its next prompt" % (sid[:8], done_prefix()))
+    ledger = guide_ledger()
+    if ledger is None:
+        print("no single guide ledger found: set its row's Level to DONE yourself")
+    else:
+        print("%d row(s) in %s set to DONE" % (close_rows(ledger, sid), ledger))
     return 0
 
 

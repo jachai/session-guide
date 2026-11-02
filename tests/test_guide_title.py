@@ -421,6 +421,42 @@ class GuideTitleTest(unittest.TestCase):
         self.assertNotEqual(self.run_script("done", "", CLAUDE_CODE_SESSION_ID=WORKER).returncode, 0)
         self.assertFalse(os.path.exists(os.path.join(self.cfg, "session-guide", "guides", WORKER)))
 
+    def test_closed_sessions_and_repeated_rows_do_not_count(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        with open(self.ledger, "w") as f:  # topmost row wins; a closed session's rows are skipped; no id counts
+            f.write(LEDGER.replace("| old lead [c1c1c1] |", "| search reindex again [a1a1a1deadbeef] | DONE | x | | | | |\n"
+                                   "| search reindex old [a1a1a1] | MANAGED | x | | | | |\n| old lead [c1c1c1] |")
+                    .replace("| personal notes [e8f9a0] | IGNORED", "| no id here | MANAGED | x | | | | |\n| personal notes [e8f9a0] | IGNORED"))
+        # billing, search reindex (its topmost row; the two rows below it are skipped) and the row with no id
+        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager (3 managed · 1 watched · 0 active · 0 new) 🟥🟥")
+        os.makedirs(os.path.join(self.cfg, "session-guide", "guides"), exist_ok=True)
+        self.run_script("done", "3fa9c100-0000-4000-8000-000000000000")
+        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager (2 managed · 1 watched · 0 active · 0 new) 🟥🟥")
+
+    def test_newest_row_level_wins_when_two_rows_name_one_session(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        with open(self.ledger, "w") as f:
+            f.write(LEDGER.replace("| billing export lead [3fa9c1] | MANAGED", "| billing export lead [3fa9c1] | DONE (merged)\n"
+                                   "| billing export lead [3fa9c1] | MANAGED"))
+        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager (1 managed · 1 watched · 0 active · 0 new) 🟥🟥")
+
+    def test_done_sets_the_row_level_in_the_guide_ledger(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        before = open(self.ledger).read()
+        r = self.run_script("done", "3fa9c100-0000-4000-8000-000000000000", CLAUDE_CODE_SESSION_ID=GUIDE)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("1 row(s)", r.stdout)
+        self.assertEqual(open(self.ledger).read(),
+                         before.replace("[3fa9c1] | MANAGED | billing lead", "[3fa9c1] | DONE | billing lead"))
+        self.assertIn("(1 managed", self.guide_title())
+
+    def test_done_without_a_findable_ledger_still_closes_and_says_so(self):
+        r = self.run_script("done", WORKER)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("yourself", r.stdout)
+        with open(os.path.join(self.cfg, "session-guide", "guides", WORKER)) as f:
+            self.assertEqual(f.read(), "done\n")
+
 
 if __name__ == "__main__":
     unittest.main()

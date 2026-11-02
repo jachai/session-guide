@@ -195,7 +195,8 @@ Guide context: <N>k (hand off at 120k)
   3. Check that its state now shows done (`claude-top --once`, STATE column). If it doesn't (it is blocked on a
      question, a permission prompt or a cost guard, so the message can't reach its Claude), list
      `! claude stop <session id>` under **Needs you now**.
-  4. Set its row's Level to DONE in the ledger's Sessions table.
+  4. `done` also sets that session's Sessions row Level to DONE when it finds the guide's ledger (it says so when it
+     can't: then set it yourself). The title's counts skip closed sessions and count a session once, at its topmost row.
 
 ### 7. Waiting and wakeups
 - **Sweep on every turn**: a session active in the last 12 h with no row in the ledger's Sessions table is new. The

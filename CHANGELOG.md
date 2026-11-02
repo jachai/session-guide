@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-11-02
+
+### Fixed
+
+- The guide's title no longer counts sessions that are closed: a row whose session has a `done` marker is skipped, and
+  a session named by several rows counts once, at its topmost row's Level (rows with no `[id]` count as before). A
+  title could show "33 managed" with nothing running.
+- `guide_title.py done <id>` now also sets that session's Level to DONE in the guide's ledger, or says it couldn't
+  find the ledger and closes anyway.
+
 ## [0.1.7] - 2026-10-31
 
 ### Added
