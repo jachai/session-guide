@@ -11,6 +11,10 @@
     python3 guide_title.py unwatched [<id>]                    the same as unguided
     python3 guide_title.py done [<id>]                         closed: "✅ " before its title, never orange again
     python3 guide_title.py sweep [<ledger>] [--hours 12]       list recently active sessions the ledger doesn't have
+    python3 guide_title.py settle [<ledger>] [--idle-hours 2]  which sessions aren't settled, which reminders are due
+    python3 guide_title.py waiting <id> "<what the user does>" it waits on the user: a reminder, due now
+    python3 guide_title.py sleep <id> <hours>                  put that reminder off
+    python3 guide_title.py unwait <id>                         it no longer waits on the user: the reminder goes
     python3 guide_title.py hook                                UserPromptSubmit / SessionStart hook (JSON on stdin)
 
 A marked session gets this title on every prompt and every start, so a rename (by hand or by another titling hook)
@@ -58,6 +62,11 @@ The session-titles plugin answers the same hook events later and its title wins,
 stored origin ($CLAUDE_CONFIG_DIR/session-titles/<session id>.json), whenever a marker is written and on every prompt:
 then both hooks give the same title. Guides and retired guides get its `off` flag instead. No state file, no change.
 
+Every MANAGED or WATCHED session has to settle: either it waits on the user (a row in the ledger's `## Waiting on ...`
+table, whose Remind at says when to ask again; `sleep` moves it) or it is closed (`done`, which also removes that row).
+settle lists the sessions quiet for --idle-hours that are neither, and the reminders that are due; the hook gives a guide
+both on every prompt. A running session, and one whose reminder sleeps, is left alone.
+
 --session (and the <id> of retire / guided / watched / unguided) defaults to $CLAUDE_CODE_SESSION_ID and may be an id
 prefix.
 Python 3 stdlib only.
@@ -83,6 +92,10 @@ GUIDED, UNGUIDED = "guided", "unguided"  # marker content for a MANAGED worker, 
 WATCHED, ACTIVE = "watched", "active"  # marker content for a WATCHED session and for an ACTIVE one
 WORKER_MARKERS = (GUIDED, WATCHED, ACTIVE, UNGUIDED)
 DONE = "done"  # marker content for a session the guide closed
+IDLE_HOURS = 2  # a MANAGED or WATCHED session quiet this long has to settle
+SLEEP_HOURS = (1, 2, 8, 12, 24, 48)  # the periods the guide offers; `sleep` takes any positive number
+TIME_FORMAT = "%Y-%m-%d %H:%M"  # Asked and Remind at: local time
+WAITING_TABLE = ["| Session [id6] | What the user needs to do | Asked | Remind at |\n", "|---|---|---|---|\n"]
 
 
 def config_dir():
@@ -223,6 +236,7 @@ def guide_context(session_id):
         return None
     ledger = os.path.expanduser(content)
     found, shut, held = untracked(ledger, session_id), closable(ledger), settle_closed()
+    settling = settle_status(ledger, session_id)
     parts = []
     if held:
         parts.append("session-guide sweep: %d closed session(s) still have a running process, so their titles stay "
@@ -239,6 +253,25 @@ def guide_context(session_id):
         parts.append("session-guide sweep: %d session(s) have only DONE rows in the ledger but are still marked, so "
                      "their titles stay orange. Run `python3 %s done <id>` on each: %s"
                      % (len(shut), os.path.abspath(__file__), ", ".join(s[:8] for s in shut)))
+    if settling["unsettled"]:
+        rows = settling["unsettled"]
+        lines = ["- " + describe_unsettled(s) for s in rows[:8]] + ["- and %d more" % (len(rows) - 8)] * (len(rows) > 8)
+        parts.append("session-guide settle: %d session(s) have gone quiet and aren't settled:\n%s\n"
+                     "Peek each. Finished, nothing left on it or its subject: close it (`python3 %s done <id>`; ask the "
+                     "user first if it is WATCHED or you aren't sure). Still needs the user: `python3 %s waiting <id> "
+                     "\"<exact action, full link or command>\"`. More work for it: send it the next step."
+                     % (len(rows), "\n".join(lines), os.path.abspath(__file__), os.path.abspath(__file__)))
+    if settling["due"]:
+        rows = settling["due"]
+        lines = ["- %s: %s (asked %s)" % (r["session"], r["what"], r["asked"]) for r in rows[:8]]
+        lines += ["- and %d more" % (len(rows) - 8)] * (len(rows) > 8)
+        parts.append("session-guide settle: %d reminder(s) due:\n%s\n"
+                     "Check each still applies (peek, PR state), then ask with AskUserQuestion, one question each, "
+                     "repeating the full action: Done it / Nothing more to do: close it / Sleep 1, 2 or 8 hours / Sleep 12, "
+                     "24 or 48 hours. A sleep answer gets an immediate second question for the exact period, then `python3 "
+                     "%s sleep <id> <hours>`. Afterwards keep a wake scheduled for the next reminder that `settle` prints: "
+                     "over 60 minutes away, a one-shot CronCreate rather than chained wakeups."
+                     % (len(rows), "\n".join(lines), os.path.abspath(__file__)))
     return "\n".join(parts) or None
 
 
@@ -377,6 +410,187 @@ def closable(ledger):
                 all(level == "DONE" for level in levels[sid[:6].lower()]):
             found.append(sid)
     return sorted(found)
+
+
+def split_row(line):
+    """The cells of a table row. `\\|` is a pipe inside a cell: reminders hold shell commands."""
+    return [c.strip() for c in re.split(r"(?<!\\)\|", line.strip()[1:-1])]
+
+
+def session_levels(ledger):
+    """{id6: (level, first cell)} from the ## Sessions table; a session on several rows takes its topmost row's Level."""
+    found, in_sessions = {}, False
+    for line in open(ledger, errors="replace"):
+        if line.startswith("## "):
+            in_sessions = line.strip() == "## Sessions"
+        elif in_sessions and line.lstrip().startswith("|"):
+            cells = split_row(line)
+            rid = row_id(cells[0]) if len(cells) > 1 else None
+            ids = re.findall(r"\[([0-9a-fA-F]{6,36})\]", cells[0])
+            if len(ids) > 1:  # a title can quote other refs, say "[065020] (ListAgents [fa18dd])": take the real session
+                rid = next((i[:6].lower() for i in reversed(ids) if last_write(i[:6].lower())), rid)
+            if rid:
+                found.setdefault(rid, (re.match(r"[A-Za-z]*", cells[1]).group(), cells[0]))
+    return found
+
+
+def waiting_rows(ledger):
+    """{id6: {session, what, asked, remind}} from the table in the ledger's `## Waiting on ...` section."""
+    found, inside = {}, False
+    for line in open(ledger, errors="replace"):
+        if line.startswith("## "):
+            inside = line.startswith("## Waiting on")
+        elif inside and line.lstrip().startswith("|"):
+            cells = split_row(line)
+            rid = row_id(cells[0])
+            if rid and len(cells) >= 4:
+                found[rid] = dict(session=cells[0], what=cells[1].replace("\\|", "|"), asked=cells[2], remind=cells[3])
+    return found
+
+
+def write_waiting(ledger, rid, row):
+    """Set session `rid`'s row in the waiting table to `row` (its 4 cells), or remove it when `row` is None. True when
+    the ledger changed. Adds the section and the table when they are missing, and leaves any bullets there alone."""
+    lines = open(ledger, errors="replace").read().splitlines(True)
+    text = row and "| %s |\n" % " | ".join(c.replace("\n", " ").replace("|", "\\|") for c in row)
+    start = next((i for i, l in enumerate(lines) if l.startswith("## Waiting on")), None)
+    if start is None:
+        if row is None:
+            return False
+        at = next((i for i, l in enumerate(lines) if l.startswith("## Open items")), len(lines))
+        lines[at:at] = ["## Waiting on the user\n", "\n"]
+        start = at
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    table = [i for i in range(start + 1, end) if lines[i].lstrip().startswith("|")]
+    mine = [i for i in table if row_id(split_row(lines[i])[0]) == rid]
+    if mine:
+        lines[mine[0]:mine[0] + 1] = [text] if row else []
+    elif row is None:
+        return False
+    elif table:
+        lines.insert(table[-1] + 1, text)
+    else:
+        blank = [] if lines[start + 1:start + 2] == ["\n"] and end == start + 2 else ["\n"]
+        lines[start + 1:start + 1] = WAITING_TABLE + [text] + blank
+    with open(ledger + ".tmp", "w") as f:
+        f.write("".join(lines))
+    os.replace(ledger + ".tmp", ledger)
+    return True
+
+
+def last_write(rid):
+    """(full session id, seconds since its transcript last changed), or None when it has no transcript any more."""
+    paths = glob.glob(os.path.join(config_dir(), "projects", "*", rid + "*.jsonl"))
+    if not paths:
+        return None
+    path = max(paths, key=os.path.getmtime)
+    return os.path.basename(path)[:-6], time.time() - os.path.getmtime(path)
+
+
+def job_state(session_id):
+    try:
+        with open(os.path.join(config_dir(), "jobs", session_id[:8], "state.json")) as f:
+            return json.load(f).get("state") or ""
+    except (OSError, ValueError):
+        return ""
+
+
+def settle_status(ledger, session_id="", idle_hours=IDLE_HOURS):
+    """What is left to settle: {unsettled, due, asleep}.
+
+    unsettled: MANAGED and WATCHED sessions, quiet for idle_hours and not running, with no waiting row and not closed.
+    due / asleep: waiting rows of open sessions, by Remind at. A row whose time can't be read is due: never forgotten."""
+    levels, rows, closed = session_levels(ledger), waiting_rows(ledger), closed_ids()
+    unsettled, due, asleep = [], [], []
+    for rid, (level, cell) in levels.items():
+        if level not in ("MANAGED", "WATCHED") or rid in closed or rid in rows or rid == session_id[:6].lower():
+            continue
+        seen = last_write(rid)
+        if seen is None:
+            unsettled.append(dict(id=rid, session=cell, level=level, idle=None, state=""))
+            continue
+        sid, idle = seen
+        content, state = marker_content(sid), job_state(sid)
+        if content is not None and content not in WORKER_MARKERS:  # a guide: guides settle by handing over
+            continue
+        if idle >= idle_hours * 3600 and not (state == "working" and session_alive(sid)):
+            unsettled.append(dict(id=rid, session=cell, level=level, idle=idle, state=state))
+    for rid, row in rows.items():
+        if rid in closed or levels.get(rid, ("", ""))[0] not in ("MANAGED", "WATCHED", "ACTIVE"):
+            continue
+        try:
+            at = time.mktime(time.strptime(row["remind"], TIME_FORMAT))
+        except ValueError:
+            at = 0
+        (due if at <= time.time() else asleep).append(dict(row, id=rid, at=at))
+    return dict(unsettled=unsettled, due=sorted(due, key=lambda r: r["at"]), asleep=sorted(asleep, key=lambda r: r["at"]))
+
+
+def describe_unsettled(row):
+    if row["idle"] is None:
+        return "%s, %s: its transcript is gone, so set its row's Level to DONE by hand" % (row["session"], row["level"])
+    return "%s, %s: quiet %.0f h%s" % (row["session"], row["level"], row["idle"] / 3600,
+                                       ", job state " + row["state"] if row["state"] else "")
+
+
+def require_ledger():
+    ledger = guide_ledger()
+    if ledger is None:
+        raise SystemExit("no single guide ledger found: run this from the guide")
+    return ledger
+
+
+def cmd_settle(args):
+    ledger = os.path.expanduser(args.ledger or require_ledger())
+    found = settle_status(ledger, os.environ.get("CLAUDE_CODE_SESSION_ID", ""), args.idle_hours)
+    for row in found["unsettled"]:
+        print("Unsettled: " + describe_unsettled(row))
+    for row in found["due"]:
+        print("Due: %s: %s (asked %s)" % (row["session"], row["what"], row["asked"]))
+    for row in found["asleep"]:
+        print("Asleep until %s: %s: %s" % (row["remind"], row["session"], row["what"]))
+    print("%d unsettled, %d due, %d asleep" % (len(found["unsettled"]), len(found["due"]), len(found["asleep"])))
+    if found["asleep"]:
+        print("Next reminder: " + found["asleep"][0]["remind"])
+    return 0
+
+
+def cmd_waiting(args):
+    sid, ledger = resolve_session(args.session), require_ledger()
+    what = " ".join(args.what.split())
+    if not what:
+        raise SystemExit("say what the user needs to do")
+    level, cell = session_levels(ledger).get(sid[:6].lower(), ("", ""))
+    if level not in ("MANAGED", "WATCHED", "ACTIVE") or marker_content(sid) == DONE:
+        raise SystemExit("%s has no open row in ## Sessions (level %r); give it one first" % (sid[:8], level))
+    now = time.strftime(TIME_FORMAT)
+    old = waiting_rows(ledger).get(sid[:6].lower())
+    write_waiting(ledger, sid[:6].lower(), [cell, what, old["asked"] if old else now, old["remind"] if old else now])
+    print("%s waits on the user; reminder at %s" % (sid[:8], old["remind"] if old else now))
+    return 0
+
+
+def cmd_sleep(args):
+    sid, ledger = resolve_session(args.session), require_ledger()
+    if args.hours <= 0:
+        raise SystemExit("sleep for a positive number of hours; the guide offers %s" % ", ".join(map(str, SLEEP_HOURS)))
+    row = waiting_rows(ledger).get(sid[:6].lower())
+    if not row:
+        raise SystemExit("%s has no reminder; run `waiting` first" % sid[:8])
+    remind = time.strftime(TIME_FORMAT, time.localtime(time.time() + args.hours * 3600))
+    write_waiting(ledger, sid[:6].lower(), [row["session"], row["what"], row["asked"], remind])
+    print("%s sleeps until %s" % (sid[:8], remind))
+    asleep = settle_status(ledger)["asleep"]
+    if asleep:
+        print("Next reminder: " + asleep[0]["remind"])
+    return 0
+
+
+def cmd_unwait(args):
+    sid, ledger = resolve_session(args.session), require_ledger()
+    gone = write_waiting(ledger, sid[:6].lower(), None)
+    print("%s %s" % (sid[:8], "no longer waits on the user" if gone else "had no reminder"))
+    return 0
 
 
 def cmd_sweep(args):
@@ -520,6 +734,7 @@ def cmd_done(args):
         print("no single guide ledger found: set its row's Level to DONE yourself")
     else:
         print("%d row(s) in %s set to DONE" % (close_rows(ledger, sid), ledger))
+        write_waiting(ledger, sid[:6].lower(), None)
     return 0
 
 
@@ -580,6 +795,17 @@ def main(argv=None):
     sweep = sub.add_parser("sweep", help="list recently active sessions the ledger has no row for")
     sweep.add_argument("ledger", nargs="?")
     sweep.add_argument("--hours", type=float, default=12)
+    settle = sub.add_parser("settle", help="list sessions that aren't settled and reminders that are due")
+    settle.add_argument("ledger", nargs="?")
+    settle.add_argument("--idle-hours", type=float, default=IDLE_HOURS)
+    waiting = sub.add_parser("waiting", help="this session waits on the user: a reminder, due now")
+    waiting.add_argument("session")
+    waiting.add_argument("what")
+    sleep = sub.add_parser("sleep", help="put a session's reminder off")
+    sleep.add_argument("session")
+    sleep.add_argument("hours", type=float)
+    unwait = sub.add_parser("unwait", help="it no longer waits on the user: the reminder goes")
+    unwait.add_argument("session")
     unguided = sub.add_parser("unguided", help="no longer managed or watched: the prefix comes off")
     unguided.add_argument("session", nargs="?")
     unwatched = sub.add_parser("unwatched", help="the same as unguided")
@@ -591,7 +817,8 @@ def main(argv=None):
                 "guided": lambda a: set_level(a, GUIDED, guided_prefix()),
                 "watched": lambda a: set_level(a, WATCHED, watched_prefix()),
                 "active": lambda a: set_level(a, ACTIVE, active_prefix()),
-                "unguided": cmd_unguided, "unwatched": cmd_unguided, "done": cmd_done, "sweep": cmd_sweep}
+                "unguided": cmd_unguided, "unwatched": cmd_unguided, "done": cmd_done, "sweep": cmd_sweep,
+                "settle": cmd_settle, "waiting": cmd_waiting, "sleep": cmd_sleep, "unwait": cmd_unwait}
     return commands[args.cmd](args)
 
 

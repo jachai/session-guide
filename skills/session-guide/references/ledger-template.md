@@ -11,6 +11,11 @@ new: the title hook counts those live, and the guide asks about them until each 
 for that owner. Status is ASK <time> (in the user's next ask), waiting (with the next check), or DONE (how verified;
 delete DONE rows after a day). Nothing sits here as "whenever you want".
 
+**Waiting on the user** holds a table with one row per session that only the user can move, written by `guide_title.py
+waiting` and `sleep`: the exact action with its full link or command, when it was first asked, and when to remind.
+Remind at is `YYYY-MM-DD HH:MM`, local time; a value that can't be read counts as due. Bullets for items no session owns can
+sit below the table. A MANAGED or WATCHED session with no row here that has gone quiet has to settle (SKILL §7).
+
 ```markdown
 # <slug> — guide ledger
 Guide: '<guide title>' [id8] since <date HH:MM>          (or: HANDING OFF to next guide)
@@ -44,7 +49,9 @@ Updated: <date HH:MM>   Usage: <plan usage, if you track it>
    Example: order 600.00, customer returns 1 of 3 items (200.00), store at fault → customer refunded 200.00, fee waived.
 
 ## Waiting on the user
-- Merge #142 — 'billing export lead' [3fa9c1] — asked 12:40, reminded no
+| Session [id6] | What the user needs to do | Asked | Remind at |
+|---|---|---|---|
+| billing export lead [3fa9c1] | Merge #142: https://github.com/acme/billing/pull/142 | 2026-10-27 12:40 | 2026-10-27 20:40 |
 
 ## Open items
 | Item | Owner | Next action | Status |

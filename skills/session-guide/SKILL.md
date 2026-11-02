@@ -1,6 +1,6 @@
 ---
 name: session-guide
-description: Make this session the user's GUIDE across several parallel Claude Code sessions — it tracks every stream in one ledger, relays decisions and approvals to worker sessions over SendMessage, interviews the user (workers never ask the user directly), wakes itself while waiting, sweeps recently active sessions and closes finished ones, says exactly which session needs the user for what, and hands off to a fresh guide at ~120k context. Use when asked to "be the guide", "release guide", "orchestration guide", "guide me through", "take over as guide", "orchestrate these sessions", "what's next across sessions", or when a session should join or leave a guide (`/session-guide join`, `/session-guide leave`).
+description: Make this session the user's GUIDE across several parallel Claude Code sessions — it tracks every stream in one ledger, relays decisions and approvals to worker sessions over SendMessage, interviews the user (workers never ask the user directly), wakes itself while waiting, sweeps recently active sessions and closes finished ones, settles every session it followed as either waiting on the user (with reminders the user can put to sleep) or done, says exactly which session needs the user for what, and hands off to a fresh guide at ~120k context. Use when asked to "be the guide", "release guide", "orchestration guide", "guide me through", "take over as guide", "orchestrate these sessions", "what's next across sessions", or when a session should join or leave a guide (`/session-guide join`, `/session-guide leave`).
 ---
 
 # Session guide
@@ -71,7 +71,8 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
    `python3 <skill dir>/scripts/guide_title.py guided <session id>` on each, so its title starts with "🟧🟧 (g) " (a
    repeat is harmless). Run `guide_title.py watched <session id>` on each WATCHED row, so its title starts with
    "⬜⬜ ", and `guide_title.py active <session id>` on each ACTIVE row, so it starts with "🟦🟦 ". The rest go through
-   the sweep (§7) and into your first interview.
+   the sweep (§7) and into your first interview. Then run `python3 <skill dir>/scripts/guide_title.py settle <ledger>`
+   and handle what it lists (§7): reminders only fire while a guide runs, so a new guide is what restarts them.
 5. Introduce yourself to every MANAGED worker in **one** message (§3). Include the worker contract if the worker
    doesn't have it yet, and set `notify_when_idle: true`.
 6. Pin your title: `python3 <skill dir>/scripts/guide_title.py mark <ledger path>`. From your next prompt the title
@@ -99,7 +100,7 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
 - WATCHED sessions: read them, never message them, with one exception. When peek shows a WATCHED session's
   **unanswered question**, put it in your next interview (its words, your recommendation first). Relay the
   answer in one message, "ANSWER (the user's, relayed by the guide): …", and nothing else: relaying is a message,
-  and it is the only one a WATCHED session gets. It stays WATCHED. If the question is an open dialog
+  and apart from a close the user approved (§7) it is the only one a WATCHED session gets. It stays WATCHED. If the question is an open dialog
   (AskUserQuestion, a permission or guard prompt), a message can't answer it: list "answer <title> [id6] in its own
   window" under **Needs you now**.
 - ACTIVE sessions are running, but you neither manage nor watch them: never peek or message them, and keep only their
@@ -151,6 +152,10 @@ one. Everything you need from the user goes through `AskUserQuestion`:
    - Something only the user can do (a merge, a `!` command, a dialog open in another session's window, which a relay
      can't answer): the question carries the link or command, with Done / Not yet. On Done, verify it. On Not yet,
      keep it under **Needs you now** and ask again at the next wake that has news on it.
+   - Reminder that is due (§7), one question per session, with its full action: Done it / Nothing more to do: close it /
+     Sleep 1, 2 or 8 hours / Sleep 12, 24 or 48 hours. A sleep answer gets a second question straight away with the exact
+     periods, then `guide_title.py sleep <session id> <hours>`. On Done it, verify, then close the session or, if it has
+     more to do, run `unwait` and send it the next step. If the check fails, say so and ask again.
 5. **Unanswered means ask again,** at the next wake. Nothing is settled by your having mentioned it.
 6. **Fallback.** Only when the tool is refused or unavailable (a `claude -p` run), put the question in your text and
    end with a line `needs input: <exactly what you need>`.
@@ -160,6 +165,8 @@ one. Everything you need from the user goes through `AskUserQuestion`:
 **Needs you now**
 1. <action only the user can do> — <session title [id6]> / PR link / exact `!` command
 2. …
+**Asleep**
+- <session title [id6]>: <what it needs from the user>, reminder at HH:MM
 **Streams**
 - <stream>: <where it is> → next: <action> (<session title [id6]> or you)
 **Proposed actions**
@@ -168,6 +175,8 @@ one. Everything you need from the user goes through `AskUserQuestion`:
 - <what>, next check ~HH:MM
 Guide context: <N>k (hand off at 120k)
 ```
+- "Asleep" lists the reminders the user put off; leave the heading out when there are none. Due reminders belong in
+  "Needs you now".
 - "Needs you now" lists only the user's actions, most urgent first. A merge comes with its PR link and what you
   checked (checks green, mergeable, deploy queue clear).
 - Every Streams line ends with "→ next: <action> (owner)". A stream with no next action is DONE or gets one.
@@ -186,8 +195,9 @@ Guide context: <N>k (hand off at 120k)
   suffix in `references/worker-contract.md`. Record its title and id in the ledger as MANAGED, and run
   `guide_title.py guided <session id>`.
 - Prefer a fresh session over pushing a worker that is near its context limit through more work.
-- **Close** a MANAGED session once it is finished (DONE verified, nothing left for it) or obsolete (a successor took
-  over, or the stream was dropped). Closing is shaped like retiring a guide (§2):
+- **Close** a MANAGED session once it is finished (DONE verified, nothing left for it or its subject: every loose end
+  is resolved or sits in Open items with another owner) or obsolete (a successor took over, or the stream was dropped).
+  Closing is shaped like retiring a guide (§2):
   1. `python3 <skill dir>/scripts/guide_title.py done <session id>`. If no process holds the
      session it now reads "✅ " in place of "🟧🟧 (g) " at once; a running one changes when step 2's message reaches
      it, or at your next prompt after its process ends. The hook never gives it a guided, watched or guide title
@@ -211,12 +221,29 @@ Guide context: <N>k (hand off at 120k)
   stays new, and you keep asking, until the user picks a level.
 - **Open items on every wake**: re-check the reports and handoffs that arrived since the last wake for new items
   (§4, Open items), then put the rows still marked ASK or "new session (proposed)" into the interview.
+- **Settle on every wake**: nothing the guide followed is forgotten. Every MANAGED or WATCHED session ends in one of
+  two states, and `python3 <skill dir>/scripts/guide_title.py settle <ledger>` lists the ones that have gone 2 h quiet
+  without reaching either (the hook lists them on each prompt too, with the reminders that are due):
+  1. **Waiting on the user.** Still relevant, and only the user can move it: `guide_title.py waiting <session id>
+     "<exact action, full link or command>"`. That writes a row in the ledger's waiting table, due now, so ask this turn
+     (§4, Reminder). Each time it comes due, first check it still applies (peek, PR state), so the user is never asked
+     about something already done. Until the user picks a sleep period, an unanswered reminder stays due. Send one
+     `PushNotification` per wake that has due reminders, if you have the tool.
+  2. **Done.** Finished, with no follow-ups on the session or its subject: close it (§6). `done` removes its reminder. A
+     WATCHED session closes only on the user's yes, and that yes allows it the one CLOSE message.
+
+  Anything else isn't settled yet. More work for it: send it the next step, and it stops being quiet. Blocked on an
+  outside event with nothing for the user to do: a `waiting` row naming the event with a `sleep` you pick, and when it
+  comes due re-check it, asking the user only if they are now needed. Not sure which: ask the user.
 - For an imminent event (the user's merge, a deploy job, CI finishing), schedule a wakeup in +5 min. For a long
   run (a full CI run, a test battery, a helper lane), use +10 min. Subscribe with `notify_when_idle` too: the notice
   is a hint, not a guarantee.
 - **Always keep a wake scheduled while any session was active in the last 2 h,** even with nothing to wait for: it is
   how you notice new sessions, since nothing wakes you when one starts. Back off +30, then +60 at most, when nothing
-  changes. Stop only after 2 h with no active session; the hook catches anything new on the user's next prompt.
+  changes. After 2 h with no active session, the only wake left is for the reminders: one one-shot `CronCreate` at the
+  "Next reminder" time `settle` prints (avoid minute :00 and :30), never a chain of hourly wakes, which pay for your whole
+  context each time. If an earlier reminder appears, replace it. With no reminders left, stop; the hook catches anything
+  new on the user's next prompt.
 - If `ScheduleWakeup` is refused or missing, use a one-shot `CronCreate`. If you have neither, say so once in your
   status: you will only see new sessions when the user messages you.
 - Keep the wake prompt short and rebuild it from the ledger each time: "Guide wake: read ledger <path>; new sessions
@@ -227,7 +254,7 @@ Guide context: <N>k (hand off at 120k)
 ### 8. Handoff (at 120k context, or when the user asks)
 1. Make the ledger current: every section, not just the log.
 2. Change the ledger's `Guide:` line to "HANDING OFF to next guide".
-3. Cancel wakeups. Tell each MANAGED worker in one line: "Guide changing; keep reporting in your final message until
+3. Cancel wakeups and any reminder cron. Tell each MANAGED worker in one line: "Guide changing; keep reporting in your final message until
    the new guide introduces itself."
 4. Give the user the paste-ready prompt: `/session-guide` followed by "Take over as guide. Ledger: <path>." Name the
    one next action. If the user asks, start the next guide yourself with `claude --bg`.

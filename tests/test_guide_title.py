@@ -36,7 +36,7 @@ Guide: 'release guide' [c0ffee12] since 10-27 09:00
 """
 
 
-class GuideTitleTest(unittest.TestCase):
+class GuideTitleBase(unittest.TestCase):
     def setUp(self):
         self.cfg = tempfile.mkdtemp(prefix="guide-title-")
         self.ledger = os.path.join(self.cfg, "session-guide", "release-2026-10-27", "ledger.md")
@@ -71,7 +71,23 @@ class GuideTitleTest(unittest.TestCase):
         self.assertEqual((r.returncode, r.stderr), (0, ""))
         return json.loads(r.stdout)["hookSpecificOutput"]["sessionTitle"] if r.stdout else None
 
+    def transcript(self, session_id, title="", entrypoint="cli", age=0):
+        path = os.path.join(self.cfg, "projects", "-tmp-repo", session_id + ".jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(json.dumps({"type": "user", "entrypoint": entrypoint}) + "\n")
+            f.write(json.dumps({"type": "custom-title", "customTitle": title}) + "\n")
+        os.utime(path, (time.time() - age, time.time() - age))
+
+    def keep_open_rows_alive(self):
+        """Give LEDGER's MANAGED and WATCHED rows fresh transcripts, since a row with none has to settle."""
+        for rid in ("3fa9c1", "a1a1a1", "b5c6d7"):
+            self.transcript(rid + "00-0000-4000-8000-000000000000")
+
+
+class GuideTitleTest(GuideTitleBase):
     def test_marked_session_gets_exact_title_with_counts(self):
+        self.keep_open_rows_alive()
         self.assertEqual(self.run_script("mark", self.ledger, "--session", GUIDE).returncode, 0)
         for event in ("UserPromptSubmit", "SessionStart"):
             r = self.hook(event=event)
@@ -318,15 +334,8 @@ class GuideTitleTest(unittest.TestCase):
         self.assertEqual(self.run_script("mark", self.ledger, "--session", WORKER).returncode, 0)
         self.assertEqual(self.worker_title("(g) billing lead"), TITLE)
 
-    def transcript(self, session_id, title="", entrypoint="cli", age=0):
-        path = os.path.join(self.cfg, "projects", "-tmp-repo", session_id + ".jsonl")
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            f.write(json.dumps({"type": "user", "entrypoint": entrypoint}) + "\n")
-            f.write(json.dumps({"type": "custom-title", "customTitle": title}) + "\n")
-        os.utime(path, (time.time() - age, time.time() - age))
-
     def test_new_count_and_context_come_from_a_live_sweep(self):
+        self.keep_open_rows_alive()
         self.run_script("mark", self.ledger, "--session", GUIDE)
         self.assertNotIn("additionalContext", self.hook().stdout)
         self.transcript(GUIDE, "the guide itself")
@@ -349,6 +358,7 @@ class GuideTitleTest(unittest.TestCase):
 
     def test_a_new_session_stays_new_until_it_has_a_row(self):
         new = "44444444-0000-4000-8000-000000000000"
+        self.keep_open_rows_alive()
         self.run_script("mark", self.ledger, "--session", GUIDE)
         self.transcript(new, "new one")
         self.assertEqual(self.run_script("active", new).returncode, 0)  # blue already, still unanswered
@@ -542,6 +552,138 @@ class GuideTitleTest(unittest.TestCase):
         self.assertIn("done <id>", json.loads(self.hook().stdout)["hookSpecificOutput"]["additionalContext"])
         self.run_script("done", "3fa9c100-0000-4000-8000-000000000000", CLAUDE_CODE_SESSION_ID=GUIDE)
         self.assertNotIn("Closable", self.run_script("sweep", CLAUDE_CODE_SESSION_ID=GUIDE).stdout)
+
+
+class SettleTest(GuideTitleBase):
+    """Every MANAGED or WATCHED session ends waiting on the user or done, and a reminder can sleep."""
+    QUIET = "3fa9c100-0000-4000-8000-000000000000"
+
+    def setUp(self):
+        super().setUp()
+        self.keep_open_rows_alive()
+        self.assertEqual(self.run_script("mark", self.ledger, "--session", GUIDE).returncode, 0)
+
+    def settle(self):
+        r = self.run_script("settle", self.ledger)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        return r.stdout
+
+    def context(self):
+        out = self.hook().stdout
+        return json.loads(out)["hookSpecificOutput"].get("additionalContext", "") if out else ""
+
+    def set_remind(self, value):
+        lines = open(self.ledger).read().splitlines(True)
+        at = next(i for i, l in enumerate(lines) if l.startswith("| billing export lead") and l.count("|") == 5)
+        cells = lines[at].split(" | ")
+        cells[-1] = value + " |\n"
+        lines[at] = " | ".join(cells)
+        open(self.ledger, "w").write("".join(lines))
+
+    def test_quiet_session_is_unsettled_until_it_waits_or_closes(self):
+        self.assertEqual(self.settle(), "0 unsettled, 0 due, 0 asleep\n")
+        self.transcript(self.QUIET, age=3 * 3600)
+        self.assertIn("Unsettled: billing export lead [3fa9c1], MANAGED: quiet 3 h", self.settle())
+        self.assertIn("billing export lead [3fa9c1]", self.context())
+        self.assertEqual(self.run_script("waiting", self.QUIET, "Merge #142").returncode, 0)
+        self.assertNotIn("Unsettled", self.settle())
+        self.assertIn("Due: billing export lead [3fa9c1]: Merge #142", self.settle())
+        self.assertEqual(self.run_script("done", self.QUIET).returncode, 0)
+        self.assertEqual(self.settle(), "0 unsettled, 0 due, 0 asleep\n")
+        self.assertNotIn("Merge #142", open(self.ledger).read())
+
+    def test_quiet_watched_counts_but_ignored_and_handed_off_do_not(self):
+        self.transcript("b5c6d700-0000-4000-8000-000000000000", age=5 * 3600)
+        self.transcript("e8f9a000-0000-4000-8000-000000000000", age=5 * 3600)
+        self.transcript("c1c1c100-0000-4000-8000-000000000000", age=5 * 3600)
+        out = self.settle()
+        self.assertIn("design spike [b5c6d7], WATCHED", out)
+        self.assertTrue(out.endswith("1 unsettled, 0 due, 0 asleep\n"), out)
+
+    def test_running_session_is_not_unsettled_and_a_gone_one_is(self):
+        self.transcript(self.QUIET, age=3 * 3600)
+        os.makedirs(os.path.join(self.cfg, "sessions"))
+        os.makedirs(os.path.join(self.cfg, "jobs", self.QUIET[:8]))
+        with open(os.path.join(self.cfg, "sessions", "1.json"), "w") as f:
+            json.dump({"sessionId": self.QUIET, "pid": os.getpid()}, f)
+        with open(os.path.join(self.cfg, "jobs", self.QUIET[:8], "state.json"), "w") as f:
+            json.dump({"state": "working"}, f)
+        self.assertNotIn("Unsettled", self.settle())
+        os.remove(os.path.join(self.cfg, "projects", "-tmp-repo", self.QUIET + ".jsonl"))
+        self.assertIn("transcript is gone", self.settle())
+
+    def test_every_offered_sleep_moves_the_reminder_and_silences_it(self):
+        self.assertEqual(self.run_script("waiting", self.QUIET, "Merge #142").returncode, 0)
+        self.assertIn("1 reminder(s) due", self.context())
+        for hours in (1, 2, 8, 12, 24, 48):
+            r = self.run_script("sleep", self.QUIET, str(hours))
+            self.assertEqual((r.returncode, r.stderr), (0, ""))
+            want = time.strftime("%Y-%m-%d %H", time.localtime(time.time() + hours * 3600))
+            self.assertIn("Asleep until " + want, self.settle())
+            self.assertIn("Next reminder: " + want, self.settle())
+        self.assertEqual(self.context(), "")
+
+    def test_sleep_refuses_nonsense_and_sessions_with_no_reminder(self):
+        self.assertNotEqual(self.run_script("sleep", self.QUIET, "2").returncode, 0)
+        self.run_script("waiting", self.QUIET, "Merge #142")
+        self.assertNotEqual(self.run_script("sleep", self.QUIET, "0").returncode, 0)
+
+    def test_reminder_comes_due_again_and_an_unreadable_time_is_due(self):
+        self.run_script("waiting", self.QUIET, "Merge #142")
+        self.run_script("sleep", self.QUIET, "1")
+        self.set_remind("2020-01-01 09:00")
+        self.assertIn("Due: billing export lead", self.settle())
+        self.set_remind("whenever")
+        self.assertIn("Due: billing export lead", self.settle())
+
+    def test_repeat_waiting_keeps_asked_and_a_sleeping_reminder(self):
+        self.run_script("waiting", self.QUIET, "Merge #142")
+        self.run_script("sleep", self.QUIET, "8")
+        self.run_script("waiting", self.QUIET, "Merge #143 instead")
+        out = self.settle()
+        self.assertIn("Asleep until", out)
+        self.assertIn("Merge #143 instead", out)
+
+    def test_pipes_survive_the_table_and_a_sleep(self):
+        command = "! for i in a b; do claude stop $i; done | tail -1"
+        self.run_script("waiting", self.QUIET, command)
+        self.assertIn("\\| tail -1", open(self.ledger).read())
+        self.assertIn(command, self.context())
+        self.run_script("sleep", self.QUIET, "1")
+        self.assertIn(command, self.settle())
+        self.assertEqual(open(self.ledger).read().count("\\\\|"), 0)
+
+    def test_existing_bullets_stay_and_unwait_removes_only_the_row(self):
+        text = open(self.ledger).read() + "\n## Waiting on Jonathan\n- File the ticket.\n\n## Open items\n| Item | Owner |\n"
+        open(self.ledger, "w").write(text)
+        self.run_script("waiting", self.QUIET, "Merge #142")
+        ledger = open(self.ledger).read()
+        self.assertEqual(ledger.count("## Waiting on"), 1)
+        self.assertLess(ledger.index("Merge #142"), ledger.index("- File the ticket."))
+        self.assertLess(ledger.index("- File the ticket."), ledger.index("## Open items"))
+        self.assertEqual(self.run_script("unwait", self.QUIET).returncode, 0)
+        ledger = open(self.ledger).read()
+        self.assertNotIn("Merge #142", ledger)
+        self.assertIn("- File the ticket.", ledger)
+
+    def test_section_is_added_before_open_items_when_missing(self):
+        open(self.ledger, "a").write("\n## Open items\n| Item | Owner |\n")
+        self.run_script("waiting", self.QUIET, "Merge #142")
+        ledger = open(self.ledger).read()
+        self.assertLess(ledger.index("## Waiting on the user"), ledger.index("## Open items"))
+
+    def test_a_row_quoting_another_ref_is_read_as_the_session_with_a_transcript(self):
+        lines = open(self.ledger).read().replace("| design spike [b5c6d7] |", "| design spike [b5c6d7] (ListAgents [fa18dd]) |")
+        open(self.ledger, "w").write(lines)
+        self.assertEqual(self.settle(), "0 unsettled, 0 due, 0 asleep\n")
+        session = "b5c6d700-0000-4000-8000-000000000000"
+        self.transcript(session, age=3 * 3600)
+        self.assertIn("quiet 3 h", self.settle())
+        self.assertEqual(self.run_script("waiting", session, "Merge #142").returncode, 0)
+
+    def test_waiting_refuses_a_session_with_no_open_row(self):
+        self.transcript(WORKER)
+        self.assertIn("no open row", self.run_script("waiting", WORKER, "Merge #142").stderr)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-11-02
+
+### Added
+
+- Every MANAGED or WATCHED session now has to settle as waiting on the user or done, so nothing the guide followed is
+  forgotten. `guide_title.py settle` lists sessions quiet for 2 hours in neither state, and reminders that are due; the hook
+  gives a guide both on every prompt. `waiting` records the exact action in the ledger's waiting table, `sleep` puts the
+  reminder off (the guide offers 1, 2, 8, 12, 24 and 48 hours), `unwait` removes it, and `done` removes it too.
+
+### Changed
+
+- With no active session, the guide no longer stops waking while reminders exist: it keeps one one-shot cron at the next
+  reminder, since a wakeup can't reach past 60 minutes.
+
 ## [0.1.10] - 2026-11-02
 
 ### Fixed

@@ -182,10 +182,23 @@ building stays with the workers. It may:
 
 Browser checks, test batteries on shared environments, and database and log checks go to a worker or to you.
 
+## Nothing gets forgotten
+
+Every session the guide manages or watches has to settle in one of two states, and the guide checks on every wake:
+
+- **Waiting on you.** It is still relevant and only you can move it. The guide records the exact action and reminds you
+  until it is done. Each reminder first checks that it still applies, then offers: done it, nothing more to do (close it),
+  or sleep for 1, 2, 8, 12, 24 or 48 hours.
+- **Done.** It is finished, with no follow-ups on the session or its subject. It is closed with a ✅ title.
+
+A session that has gone quiet for 2 hours in neither state is flagged to the guide on its next prompt, and stays flagged.
+`guide_title.py settle <ledger>` shows the same list, plus what is due and what is asleep. Reminders are a one-shot wake in
+the guide session, so they fire only while a guide is running; a new guide picks them up from the ledger.
+
 ## The ledger
 
 `~/.claude/session-guide/<slug>/ledger.md` holds Streams, Order/gates, Sessions, Decisions (numbered, FINAL unless
-struck), Waiting on you, Open items (a table: Item | Owner | Next action | Status, where every row has an owner or
+struck), Waiting on you (a table with the action and when to remind you), Open items (a table: Item | Owner | Next action | Status, where every row has an owner or
 ASK), and a 15-line log. See the
 [template](skills/session-guide/references/ledger-template.md). It's plain Markdown, so you can read and edit it
 yourself.
