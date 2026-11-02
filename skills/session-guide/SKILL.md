@@ -188,8 +188,10 @@ Guide context: <N>k (hand off at 120k)
 - Prefer a fresh session over pushing a worker that is near its context limit through more work.
 - **Close** a MANAGED session once it is finished (DONE verified, nothing left for it) or obsolete (a successor took
   over, or the stream was dropped). Closing is shaped like retiring a guide (§2):
-  1. `python3 <skill dir>/scripts/guide_title.py done <session id>`. From its next prompt its title has "✅ " in
-     place of "🟧🟧 (g) ", and the hook never gives it a guided, watched or guide title again.
+  1. `python3 <skill dir>/scripts/guide_title.py done <session id>`. If no process holds the
+     session it now reads "✅ " in place of "🟧🟧 (g) " at once; a running one changes on its next prompt. The hook
+     never gives it a guided, watched or guide title again. A sweep line "Closable: ..." means a row is DONE but the
+     session is still orange: run `done` on it. A job state of done alone is not a reason to close.
   2. SendMessage it: "CLOSE: you are done; cancel your wakeups, use no tools, and reply with exactly: <one line on
      what you finished> / result: <title> closed".
   3. Check that its state now shows done (`claude-top --once`, STATE column). If it doesn't (it is blocked on a

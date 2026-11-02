@@ -142,7 +142,7 @@ When a new guide takes over, the old one is retired with `guide_title.py retire 
 `🎟️🎟️ Sessions Manager (retired) 🎟️🎟️` and never goes red again, and it ends with a `result:` line so its state shows
 done rather than waiting on you.
 
-A finished or obsolete worker is **closed** the same way: `guide_title.py done <id>` swaps its `🟧🟧 (g) ` for `✅ `, the
+A finished or obsolete worker is **closed** the same way: `guide_title.py done <id>` swaps its `🟧🟧 (g) ` for `✅ ` (at once when the session has ended, on its next prompt otherwise), the
 guide asks it for a final `result:` line, and checks its state turned done. If the session is stuck on a question or
 a guard prompt, the guide hands you `! claude stop <id>` instead.
 

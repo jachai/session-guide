@@ -214,19 +214,26 @@ def describe(session):
 
 
 def guide_context(session_id):
-    """What a guide should hear on this prompt: the sessions it hasn't asked about. None when there are none."""
+    """What a guide should hear on this prompt: the sessions it hasn't asked about, and the ones whose rows are DONE
+    but are still marked. None when there are none."""
     content = marker_content(session_id)
     if not content or content in WORKER_MARKERS + (RETIRED, DONE):
         return None
-    found = untracked(os.path.expanduser(content), session_id)
-    if not found:
-        return None
-    lines = ["- " + describe(s) for s in found[:8]] + ["- and %d more" % (len(found) - 8)] * (len(found) > 8)
-    return ("session-guide sweep: %d session(s) active in the last 12 h have no row in the ledger's Sessions table:"
-            "\n%s\n"
-            "Run `python3 %s active <id>` on each, then ask about them in this turn with AskUserQuestion (Manage / "
-            "Watch / Leave active / Ignore), and give each a row at the level the user picks."
-            % (len(found), "\n".join(lines), os.path.abspath(__file__)))
+    ledger = os.path.expanduser(content)
+    found, shut = untracked(ledger, session_id), closable(ledger)
+    parts = []
+    if found:
+        lines = ["- " + describe(s) for s in found[:8]] + ["- and %d more" % (len(found) - 8)] * (len(found) > 8)
+        parts.append("session-guide sweep: %d session(s) active in the last 12 h have no row in the ledger's Sessions "
+                     "table:\n%s\n"
+                     "Run `python3 %s active <id>` on each, then ask about them in this turn with AskUserQuestion (Manage / "
+                     "Watch / Leave active / Ignore), and give each a row at the level the user picks."
+                     % (len(found), "\n".join(lines), os.path.abspath(__file__)))
+    if shut:
+        parts.append("session-guide sweep: %d session(s) have only DONE rows in the ledger but are still marked, so "
+                     "their titles stay orange. Run `python3 %s done <id>` on each: %s"
+                     % (len(shut), os.path.abspath(__file__), ", ".join(s[:8] for s in shut)))
+    return "\n".join(parts) or None
 
 
 def marker_content(session_id):
@@ -344,6 +351,28 @@ def set_level(args, level, prefix):
     return 0
 
 
+def closable(ledger):
+    """[(id, title)] of sessions still marked managed / watched / active whose every row in the ledger is DONE: the
+    guide closed them in the ledger but never ran `done`. Their job state alone says nothing: a worker's state turns
+    done at every final message and the guide can resume it, so only a DONE row counts."""
+    levels, in_sessions = {}, False
+    for line in open(ledger, errors="replace"):
+        if line.startswith("## "):
+            in_sessions = line.strip() == "## Sessions"
+        elif in_sessions and line.lstrip().startswith("|"):
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            rid = row_id(cells[0]) if len(cells) > 1 else None
+            if rid:
+                levels.setdefault(rid, []).append(cells[1].split()[0] if cells[1] else "")
+    found = []
+    for path in glob.glob(os.path.join(config_dir(), "session-guide", "guides", "*")):
+        sid = os.path.basename(path)
+        if marker_content(sid) in (GUIDED, WATCHED, ACTIVE) and levels.get(sid[:6].lower()) and \
+                all(level == "DONE" for level in levels[sid[:6].lower()]):
+            found.append(sid)
+    return sorted(found)
+
+
 def cmd_sweep(args):
     ledger = args.ledger or marker_content(resolve_session(None))
     if not ledger or not os.path.isfile(os.path.expanduser(ledger)):
@@ -352,6 +381,8 @@ def cmd_sweep(args):
     for session in found:
         print(describe(session))
     print("New: %d" % len(found))
+    for sid in closable(os.path.expanduser(ledger)):
+        print("Closable: [%s] has only DONE rows but is still marked; run `done %s`" % (sid[:8], sid))
     return 0
 
 
@@ -399,13 +430,57 @@ def close_rows(ledger, session_id):
     return changed
 
 
+def session_alive(session_id):
+    """True when a running Claude process holds this session (~/.claude/sessions/<pid>.json with a live pid)."""
+    for path in glob.glob(os.path.join(config_dir(), "sessions", "*.json")):
+        try:
+            info = json.load(open(path))
+            if info.get("sessionId") == session_id:
+                os.kill(int(info["pid"]), 0)
+                return True
+        except PermissionError:
+            return True  # the process exists, it is just not ours
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return False
+
+
+def retitle_stopped_job(session_id):
+    """Put the closed title into the job's state.json `name`, which is what `claude agents` and claude-top show, when
+    no process holds the session. Returns a line to print, or None when there is nothing to do.
+
+    Claude Code has no command that renames a session without running a turn in it (the hook answer and /rename both
+    need a live session), so for a session that is already over this one-key edit is the only way. A live session is
+    never touched: its own process owns the file, and its next prompt applies the hook's title."""
+    path = os.path.join(config_dir(), "jobs", session_id[:8], "state.json")
+    try:
+        with open(path) as f:
+            state = json.load(f)
+        if state.get("sessionId") != session_id or not state.get("name"):
+            return None
+        if session_alive(session_id):
+            return "its process is still running: its title changes on its next prompt"
+        name = worker_title(DONE, state["name"])
+        if not name:
+            return None
+        state["name"] = name
+        with open(path + ".tmp", "w") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+        os.replace(path + ".tmp", path)
+        return "no process holds it, so its job name was set to %r (an edit of state.json's name; no command renames a finished session)" % name
+    except (OSError, ValueError):
+        return None
+
+
 def cmd_done(args):
     sid = resolve_session(args.session)
     content = marker_content(sid)
     if content is not None and content not in WORKER_MARKERS + (DONE,):
         raise SystemExit("%s is a %sguide; retire it instead" % (sid[:8], "retired " * (content == RETIRED)))
     write_marker(sid, DONE)
-    print("%s is closed; %r goes before its title from its next prompt" % (sid[:8], done_prefix()))
+    print("%s is closed; %r goes before its title" % (sid[:8], done_prefix()))
+    note = retitle_stopped_job(sid)
+    print(note or "its title changes on its next prompt")
     ledger = guide_ledger()
     if ledger is None:
         print("no single guide ledger found: set its row's Level to DONE yourself")

@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-11-02
+
+### Fixed
+
+- A closed session kept its orange "🟧🟧 (g)" name in `claude agents` and claude-top. `done` only changed the marker and
+  session-titles' stored origin, and the name the agents view shows (the job's `state.json` `name`) changes only when
+  the session's next prompt runs the hook, which a finished session never gets. `done` now writes the "✅ " name
+  itself when no process holds the session. Claude Code has no command that renames a session without running a turn
+  in it, so this one-key edit is the only route for a session that is over; a live session is left alone and changes on
+  its next prompt, as before. If it resumes later, the hook follows its `done` marker.
+- The sweep (and the guide's hook context) lists sessions that are still marked managed, watched or active although
+  every ledger row naming them is DONE, and says to run `done` on them. A job state of done alone never closes a
+  session: workers' state goes done at every final message and the guide can resume them.
+
 ## [0.1.8] - 2026-11-02
 
 ### Fixed

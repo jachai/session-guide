@@ -457,6 +457,53 @@ class GuideTitleTest(unittest.TestCase):
         with open(os.path.join(self.cfg, "session-guide", "guides", WORKER)) as f:
             self.assertEqual(f.read(), "done\n")
 
+    def job(self, sid, name, alive=False):
+        """A job state.json for sid, and a sessions/<pid>.json that is alive (this test process) or dead."""
+        d = os.path.join(self.cfg, "jobs", sid[:8])
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "state.json"), "w") as f:
+            json.dump({"state": "done", "name": name, "sessionId": sid, "intent": "keep"}, f)
+        os.makedirs(os.path.join(self.cfg, "sessions"), exist_ok=True)
+        with open(os.path.join(self.cfg, "sessions", "1.json"), "w") as f:
+            json.dump({"pid": os.getpid() if alive else 2 ** 22 + 12345, "sessionId": sid}, f)
+        return os.path.join(d, "state.json")
+
+    def test_done_retitles_the_job_of_a_session_with_no_process(self):
+        path = self.job(WORKER, "🟧🟧 (g) billing lead · Waiting on CI")
+        self.run_script("guided", WORKER)
+        r = self.run_script("done", WORKER)
+        self.assertIn("state.json", r.stdout)
+        state = json.load(open(path))
+        self.assertEqual((state["name"], state["state"], state["intent"]), ("✅ billing lead · Waiting on CI", "done", "keep"))
+        self.assertEqual(self.run_script("done", WORKER).returncode, 0)  # a repeat changes nothing
+        self.assertEqual(json.load(open(path))["name"], "✅ billing lead · Waiting on CI")
+
+    def test_done_leaves_the_job_of_a_live_session_to_its_next_prompt(self):
+        path = self.job(WORKER, "🟧🟧 (g) billing lead", alive=True)
+        r = self.run_script("done", WORKER)
+        self.assertIn("next prompt", r.stdout)
+        self.assertEqual(json.load(open(path))["name"], "🟧🟧 (g) billing lead")
+        self.assertEqual(self.worker_title("🟧🟧 (g) billing lead"), "✅ billing lead")  # resumed: follows the marker
+
+    def test_a_job_that_is_only_done_is_not_closed(self):
+        path = self.job(WORKER, "🟧🟧 (g) billing lead")
+        self.run_script("guided", WORKER)
+        self.assertEqual(open(os.path.join(self.cfg, "session-guide", "guides", WORKER)).read(), "guided\n")
+        self.assertEqual(json.load(open(path))["name"], "🟧🟧 (g) billing lead")
+
+    def test_sweep_offers_sessions_whose_rows_are_all_done_but_still_marked(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        self.run_script("guided", "3fa9c100-0000-4000-8000-000000000000")
+        self.run_script("guided", "a1a1a100-0000-4000-8000-000000000000")
+        with open(self.ledger, "w") as f:
+            f.write(LEDGER.replace("[3fa9c1] | MANAGED", "[3fa9c1] | DONE"))
+        r = self.run_script("sweep", CLAUDE_CODE_SESSION_ID=GUIDE)
+        self.assertIn("Closable: [3fa9c100]", r.stdout)
+        self.assertNotIn("a1a1a100", r.stdout)
+        self.assertIn("done <id>", json.loads(self.hook().stdout)["hookSpecificOutput"]["additionalContext"])
+        self.run_script("done", "3fa9c100-0000-4000-8000-000000000000", CLAUDE_CODE_SESSION_ID=GUIDE)
+        self.assertNotIn("Closable", self.run_script("sweep", CLAUDE_CODE_SESSION_ID=GUIDE).stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
