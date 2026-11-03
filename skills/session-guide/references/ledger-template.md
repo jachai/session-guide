@@ -16,6 +16,13 @@ waiting` and `sleep`: the exact action with its full link or command, when it wa
 Remind at is `YYYY-MM-DD HH:MM`, local time; a value that can't be read counts as due. Bullets for items no session owns can
 sit below the table. A MANAGED or WATCHED session with no row here that has gone quiet has to settle (SKILL §7).
 
+**Verifications** is a table with one row per fix or deployment the guide proposed to check, written by `guide_title.py
+verification`: Thing (its PR `#N` or version first; that is the key), Where (prod, staging, merged, released), Result
+(proposed, running, verified, not-exercised, broken, skipped), when it was recorded, one line of evidence or the
+verifying session, and for not-exercised when to re-check. `followups` lists recent deployments with no row here. The
+`Last review:` line under the table is the time of the last follow-up review (`followups --reviewed`). Write deploy
+lines in the Log with a date and the PR or version ("10-27 11:47 #142 ON PROD @a1b2c3d"), so `followups` finds them.
+
 ```markdown
 # <slug> — guide ledger
 Guide: '<guide title>' [id8] since <date HH:MM>          (or: HANDING OFF to next guide)
@@ -60,6 +67,15 @@ Updated: <date HH:MM>   Usage: <plan usage, if you track it>
 | Skill-edit proposal from the billing lead | the user | say yes or no to the edit | ASK 12:50 |
 | Search reindex read-only prod audit | 'search reindex lead' [d4e5f6] | run the audit after traffic dips | waiting, next check ~15:00 |
 | Stale feature flag in config | ASK | — | ASK 13:05 |
+
+## Verifications
+| Thing | Where | Result | Checked | Evidence / session | Re-check |
+|---|---|---|---|---|---|
+| #142 refund fee fix | prod | verified | 2026-10-27 15:10 | 'verify #142' [9a8b7c]: 41 refunds since deploy, all fees match, 0 errors | — |
+| #139 export retry | staging | not-exercised | 2026-10-27 15:30 | 'verify #139' [8b7c6d]: no export ran since deploy | 2026-10-28 15:30 |
+| v2.4.0 | prod | running | 2026-10-27 15:40 | 'verify v2.4.0' [7c6d5e] | — |
+
+Last review: 2026-10-27 14:55
 
 ## Log (last ~15)
 - 10-27 11:51 battery re-run 64/66; rows 8 and 68 fail → relayed to the billing lead.

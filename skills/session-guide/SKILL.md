@@ -1,6 +1,6 @@
 ---
 name: session-guide
-description: Make this session the user's GUIDE across several parallel Claude Code sessions — it tracks every stream in one ledger, relays decisions and approvals to worker sessions over SendMessage, interviews the user (workers never ask the user directly), wakes itself while waiting, sweeps recently active sessions and closes finished ones, settles every session it followed as either waiting on the user (with reminders the user can put to sleep) or done, says exactly which session needs the user for what, and hands off to a fresh guide at ~120k context. Use when asked to "be the guide", "release guide", "orchestration guide", "guide me through", "take over as guide", "orchestrate these sessions", "what's next across sessions", or when a session should join or leave a guide (`/session-guide join`, `/session-guide leave`).
+description: Make this session the user's GUIDE across several parallel Claude Code sessions — it tracks every stream in one ledger, relays decisions and approvals to worker sessions over SendMessage, interviews the user (workers never ask the user directly), wakes itself while waiting, sweeps recently active sessions and closes finished ones, settles every session it followed as either waiting on the user (with reminders the user can put to sleep) or done, about once a day proposes read-only sessions that verify recent fixes and deployments against the code, the database and the logs, says exactly which session needs the user for what, and hands off to a fresh guide at ~120k context. Use when asked to "be the guide", "release guide", "orchestration guide", "guide me through", "take over as guide", "orchestrate these sessions", "what's next across sessions", or when a session should join or leave a guide (`/session-guide join`, `/session-guide leave`).
 ---
 
 # Session guide
@@ -143,7 +143,8 @@ one. Everything you need from the user goes through `AskUserQuestion`:
    first: while a dialog is open, you are likely paused and worker messages wait.
 2. **Each question stands alone,** because the user may see only the dialog: session title [id6], the full link or
    `!` command, what you checked. Recommended option first.
-3. **Order:** approvals a worker is blocked on, decisions, new sessions, open items. At most 4 questions per call.
+3. **Order:** approvals a worker is blocked on, decisions, new sessions, open items (a broken verification first,
+   proposed follow-ups last, §7). At most 4 questions per call.
    When the user answers, open the next round straight away until nothing is left.
 4. **Shapes:**
    - New session: Manage / Watch / Leave active / Ignore. It gets a row at that level, and its title follows (§3).
@@ -235,6 +236,28 @@ Guide context: <N>k (hand off at 120k)
   Anything else isn't settled yet. More work for it: send it the next step, and it stops being quiet. Blocked on an
   outside event with nothing for the user to do: a `waiting` row naming the event with a `sleep` you pick, and when it
   comes due re-check it, asking the user only if they are now needed. Not sure which: ask the user.
+- **Follow-ups, about once a day**: fixes and deployments get checked on real data, not just shipped. The review is due
+  when the last one is older than `SESSION_GUIDE_FOLLOWUP_HOURS` (default 24; 0 turns it off); the hook says so on your
+  prompt. Do it on a wake with nothing more urgent (no approval or decision waiting), or earlier on any quiet wake:
+  1. `python3 <skill dir>/scripts/guide_title.py followups <ledger>` lists the PRs and versions that the ledger's
+     last 3 days, or the reports in your sessions' transcripts, say reached production, staging, a merge or a release,
+     with no row in the ledger's Verifications table, plus "not exercised yet" rows due for a re-check.
+  2. Weed it: check each one really shipped (PR state, deploy job) and is a fix or behaviour change worth checking
+     (a docs or test-only change, or the guide skill's own release, gets `verification <thing> skipped`). Find what
+     it was meant to do: the PR body and your Decisions.
+  3. Each one left becomes an Open items row, Owner "new session (proposed)", and `verification <thing> proposed`.
+     It then goes through the normal Open items flow (§4), at most 4 per ask, production first:
+     "Start 'verify #142' to check the refund fee fix on prod? It reads the merged diff, states what should happen
+     now (a store-fault return of 200.00 on a 600.00 order refunds 200.00 with the 15.00 fee waived), then counts
+     refunds since the 11:17Z deploy in the read-only prod DB and searches the logs for errors on that path.
+     (yes recommended)"
+  4. Stamp the review: `followups <ledger> --reviewed`.
+  5. On yes, start the session from `references/verify-followup.md` with the brief filled in (§6, MANAGED), and
+     record `verification <thing> running "'verify #142' [id6]"`. On no, `verification <thing> skipped`. Not now
+     leaves the row ASK.
+  6. On its report, record the verdict (`verified`, `not-exercised`, `broken`) with one line of evidence. A broken
+     verdict becomes an Open items row for a fix and goes first in your next interview; a not-exercised one comes back
+     for a re-check after 24 h. Its loose ends become Open items, and the session closes (§6).
 - For an imminent event (the user's merge, a deploy job, CI finishing), schedule a wakeup in +5 min. For a long
   run (a full CI run, a test battery, a helper lane), use +10 min. Subscribe with `notify_when_idle` too: the notice
   is a hint, not a guarantee.

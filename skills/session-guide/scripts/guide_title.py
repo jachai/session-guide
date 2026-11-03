@@ -15,6 +15,9 @@
     python3 guide_title.py waiting <id> "<what the user does>" it waits on the user: a reminder, due now
     python3 guide_title.py sleep <id> <hours>                  put that reminder off
     python3 guide_title.py unwait <id>                         it no longer waits on the user: the reminder goes
+    python3 guide_title.py followups [<ledger>] [--days 3] [--reviewed]   recent fixes/deployments with no verification
+    python3 guide_title.py verification <thing> <result> ["<evidence>"]   record one: proposed, running, verified,
+                                                               not-exercised (re-check in 24 h), broken or skipped
     python3 guide_title.py hook                                UserPromptSubmit / SessionStart hook (JSON on stdin)
 
 A marked session gets this title on every prompt and every start, so a rename (by hand or by another titling hook)
@@ -67,11 +70,21 @@ table, whose Remind at says when to ask again; `sleep` moves it) or it is closed
 settle lists the sessions quiet for --idle-hours that are neither, and the reminders that are due; the hook gives a guide
 both on every prompt. A running session, and one whose reminder sleeps, is left alone.
 
+followups reads the ledger's dated lines from the last --days (a bullet takes the date above it) and what the ledger's
+sessions said in their transcripts since then, and lists every PR (#N, or a /pull/N link) and version (vX.Y.Z) a clause
+says is ON PROD, on staging, deployed, merged, or (versions only) tagged, released or pushed, unless a "not yet", "once",
+"asked" or the like comes just before. Anything with a row in the ledger's `## Verifications` table is left out, except
+a "not-exercised" row whose Re-check time has come, which is listed to re-check. The review's cadence is
+SESSION_GUIDE_FOLLOWUP_HOURS (default 24, 0 turns it off): `followups --reviewed` writes "Last review:" in that
+section, and until the next one is due the hook stays quiet; when it is due and the ledger alone shows something, the
+hook tells the guide. `verification` writes or updates the row for a thing (keyed by its first PR or version).
+
 --session (and the <id> of retire / guided / watched / unguided) defaults to $CLAUDE_CODE_SESSION_ID and may be an id
 prefix.
 Python 3 stdlib only.
 """
 import argparse
+import calendar
 import glob
 import json
 import os
@@ -272,6 +285,16 @@ def guide_context(session_id):
                      "%s sleep <id> <hours>`. Afterwards keep a wake scheduled for the next reminder that `settle` prints: "
                      "over 60 minutes away, a one-shot CronCreate rather than chained wakeups."
                      % (len(rows), "\n".join(lines), os.path.abspath(__file__)))
+    due = followup_due(ledger)
+    if due:
+        last = last_review(ledger)
+        parts.append("session-guide follow-ups: the review of recent fixes and deployments is due (last review %s), "
+                     "and the ledger alone shows %d with no verification recorded. When nothing more urgent is in this "
+                     "turn, run `python3 %s followups` and follow SKILL §7 Follow-ups: propose a read-only 'verify "
+                     "<thing>' session for each in the interview, record each with `verification`, and stamp the "
+                     "review with `followups --reviewed`."
+                     % (time.strftime(TIME_FORMAT, time.localtime(last)) if last else "never", due,
+                        os.path.abspath(__file__)))
     return "\n".join(parts) or None
 
 
@@ -448,21 +471,37 @@ def waiting_rows(ledger):
     return found
 
 
-def write_waiting(ledger, rid, row):
-    """Set session `rid`'s row in the waiting table to `row` (its 4 cells), or remove it when `row` is None. True when
-    the ledger changed. Adds the section and the table when they are missing, and leaves any bullets there alone."""
-    lines = open(ledger, errors="replace").read().splitlines(True)
-    text = row and "| %s |\n" % " | ".join(c.replace("\n", " ").replace("|", "\\|") for c in row)
-    start = next((i for i, l in enumerate(lines) if l.startswith("## Waiting on")), None)
+def write_ledger(ledger, lines):
+    with open(ledger + ".tmp", "w") as f:
+        f.write("".join(lines))
+    os.replace(ledger + ".tmp", ledger)
+
+
+def section_span(lines, section, title, before):
+    """(start, end) line indexes of the first section whose heading starts with `section`. When it is missing, adds it
+    as `title` before the `before` heading (else at the end) and returns where it now is."""
+    start = next((i for i, l in enumerate(lines) if l.startswith(section)), None)
     if start is None:
-        if row is None:
-            return False
-        at = next((i for i, l in enumerate(lines) if l.startswith("## Open items")), len(lines))
-        lines[at:at] = ["## Waiting on the user\n", "\n"]
+        at = next((i for i, l in enumerate(lines) if l.startswith(before)), len(lines))
+        if at == len(lines) and lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines[at:at] = [title + "\n", "\n"]
         start = at
     end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    return start, end
+
+
+def write_row(ledger, section, title, head, key_of, key, row, before="## Open items"):
+    """Set the row whose key_of(cells) is `key`, in the table of the first section whose heading starts with `section`,
+    to `row` (its cells), or remove it when `row` is None. True when the ledger changed. Adds the section (`title`)
+    and its table (`head`) when they are missing; the table goes first in the section, and anything else there stays."""
+    lines = open(ledger, errors="replace").read().splitlines(True)
+    if row is None and not any(l.startswith(section) for l in lines):
+        return False
+    text = row and "| %s |\n" % " | ".join(c.replace("\n", " ").replace("|", "\\|") for c in row)
+    start, end = section_span(lines, section, title, before)
     table = [i for i in range(start + 1, end) if lines[i].lstrip().startswith("|")]
-    mine = [i for i in table if row_id(split_row(lines[i])[0]) == rid]
+    mine = [i for i in table if key_of(split_row(lines[i])) == key]
     if mine:
         lines[mine[0]:mine[0] + 1] = [text] if row else []
     elif row is None:
@@ -471,11 +510,15 @@ def write_waiting(ledger, rid, row):
         lines.insert(table[-1] + 1, text)
     else:
         blank = [] if lines[start + 1:start + 2] == ["\n"] and end == start + 2 else ["\n"]
-        lines[start + 1:start + 1] = WAITING_TABLE + [text] + blank
-    with open(ledger + ".tmp", "w") as f:
-        f.write("".join(lines))
-    os.replace(ledger + ".tmp", ledger)
+        lines[start + 1:start + 1] = head + [text] + blank
+    write_ledger(ledger, lines)
     return True
+
+
+def write_waiting(ledger, rid, row):
+    """Set session `rid`'s row in the waiting table to `row` (its 4 cells), or remove it when `row` is None."""
+    return write_row(ledger, "## Waiting on", "## Waiting on the user", WAITING_TABLE, lambda cells: row_id(cells[0]),
+                     rid, row)
 
 
 def last_write(rid):
@@ -590,6 +633,269 @@ def cmd_unwait(args):
     sid, ledger = resolve_session(args.session), require_ledger()
     gone = write_waiting(ledger, sid[:6].lower(), None)
     print("%s %s" % (sid[:8], "no longer waits on the user" if gone else "had no reminder"))
+    return 0
+
+
+FOLLOWUP_HOURS = 24  # the guide reviews recent fixes and deployments this often (SESSION_GUIDE_FOLLOWUP_HOURS, 0 = off)
+FOLLOWUP_DAYS = 3  # how far back a review looks
+RECHECK_HOURS = 24  # a fix not exercised yet comes back for a re-check this much later
+RESULTS = ("proposed", "running", "verified", "not-exercised", "broken", "skipped")
+VERIFY_SECTION = "## Verifications"
+VERIFY_TABLE = ["| Thing | Where | Result | Checked | Evidence / session | Re-check |\n", "|---|---|---|---|---|---|\n"]
+REVIEW_STAMP = "Last review: "
+REF = re.compile(r"(?<![\w#])#(\d{2,6})\b|/pull/(\d{1,6})\b|(?<![\w.])(v\d+\.\d+\.\d+)\b")
+DATE = re.compile(r"(?<![\d-])(?:(20\d\d)-)?(0[1-9]|1[0-2])-([0-2]\d|3[01])(?![\d-])")
+# Where a clause says a fix went, strongest first. "released" counts for versions only: a pushed branch isn't a deploy.
+WHERE = [("prod", re.compile(r"\bon prod(?:uction)?\b|\b(?:deployed|released|live|shipped|promoted) (?:to|on|in) "
+                             r"prod(?:uction)?\b|\bprod(?:uction)? deploy(?:ed)?\b|\bprod since\b|\bpromoted\b", re.I)),
+         ("staging", re.compile(r"\bon staging\b|\b(?:deployed|live) (?:to|on) staging\b|\bstaging deploy(?:ed)?\b"
+                                r"|\bstaging since\b", re.I)),
+         ("deployed", re.compile(r"\bdeployed\b|\bdeploy to cluster\b", re.I)),
+         ("released", re.compile(r"\breleased\b|\btag(?:ged)?\b|\bpushed\b", re.I)),
+         ("merged", re.compile(r"\bmerged\b", re.I))]
+RANK = {"merged": 1, "released": 2, "deployed": 2, "staging": 3, "prod": 4}
+# Words just before a marker that make it a plan, a wish or a denial ("not yet merged", "once #12 is merged").
+NOT_YET = re.compile(r"(?:\b(?:not|no|nothing|never|before|once|until|unless|if|when|will|wait(?:s|ing)?|ask(?:ed)?|"
+                     r"after|to be)"
+                     r"\b|n't\b)[^.;]*$", re.I)
+CLAUSE = re.compile(r"(?<=[.;!?])\s+|\n|\s+[—–]\s+|\s+(?:->|→)\s+")
+
+
+def ref_key(match):
+    pr, pull, version = match.groups()
+    return version or "#" + (pr or pull)
+
+
+def thing_key(text):
+    """What a Verifications row (or a `verification` argument) is about: its first PR (#N) or version, else its words."""
+    found = REF.search(text)
+    return ref_key(found) if found else " ".join(text.lower().split())
+
+
+def line_date(text, now):
+    """Epoch noon of the first MM-DD (or YYYY-MM-DD) in `text`, or None. A date without a year more than 2 days ahead
+    is last year's."""
+    found = DATE.search(text)
+    if not found:
+        return None
+    year = int(found.group(1) or time.localtime(now).tm_year)
+    at = time.mktime((year, int(found.group(2)), int(found.group(3)), 12, 0, 0, 0, 0, -1))
+    if not found.group(1) and at > now + 2 * 86400:
+        at = time.mktime((year - 1, int(found.group(2)), int(found.group(3)), 12, 0, 0, 0, 0, -1))
+    return at
+
+
+def clause_hits(text, date, source):
+    """[{key, where, date, evidence, source}]: the PRs and versions each clause of `text` says reached somewhere."""
+    hits = []
+    for clause in CLAUSE.split(text):
+        refs = list(REF.finditer(clause))
+        if not refs:
+            continue
+        for where, pattern in WHERE:
+            said = [m for m in pattern.finditer(clause) if not NOT_YET.search(clause[max(0, m.start() - 30):m.start()])]
+            keys = [ref_key(r) for r in refs if where != "released" or r.group(3)]
+            if said and keys:
+                evidence = " ".join(clause.strip(" -|*").split())
+                hits += [dict(key=k, where=where, date=date, evidence=evidence[:220], source=source) for k in keys]
+                break
+    return hits
+
+
+def ledger_hits(ledger, since, now):
+    """Deployment hits in the ledger's lines dated since `since`, Verifications left out. A bullet with no date of its
+    own takes the last date above it in its section (a heading's date counts); a table row only its own. Undated lines
+    don't count: there's no telling how old they are."""
+    hits, carried, skip = [], None, False
+    for line in open(ledger, errors="replace"):
+        if line.startswith("## "):
+            skip, carried = line.startswith(VERIFY_SECTION), line_date(line, now)
+            continue
+        if skip or not line.strip():
+            continue
+        own = line_date(line, now)
+        date = own if line.lstrip().startswith("|") else (own or carried)
+        if own and not line.lstrip().startswith("|"):
+            carried = own
+        if date is not None and date >= since:
+            hits += clause_hits(line.rstrip("\n"), date, "ledger")
+    return hits
+
+
+def transcript_texts(path, since):
+    """(epoch, text) of each assistant text and SendMessage report in a transcript, newer than `since`."""
+    with open(path, "rb") as f:
+        for raw in f:
+            if b'"assistant"' not in raw or not re.search(rb"(?i)merged|prod|staging|deploy|releas|tag|pushed", raw):
+                continue
+            try:
+                d = json.loads(raw)
+                at = calendar.timegm(time.strptime(d.get("timestamp", "")[:19], "%Y-%m-%dT%H:%M:%S"))
+            except ValueError:
+                continue
+            if d.get("type") != "assistant" or d.get("isSidechain") or at < since:
+                continue
+            for b in (d.get("message") or {}).get("content") or []:
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "text":
+                    yield at, b.get("text") or ""
+                elif b.get("type") == "tool_use" and b.get("name") == "SendMessage":
+                    yield at, str((b.get("input") or {}).get("message") or "")
+
+
+def transcript_hits(ledger, since):
+    """Deployment hits in what the ledger's sessions (not ignored, not guides) said since `since`."""
+    hits = []
+    for rid, (level, cell) in session_levels(ledger).items():
+        if level in ("IGNORED", "RETIRED"):
+            continue
+        paths = [p for p in glob.glob(os.path.join(config_dir(), "projects", "*", rid + "*.jsonl"))
+                 if os.path.getmtime(p) >= since]
+        for path in paths:
+            content = marker_content(os.path.basename(path)[:-6])
+            if content is not None and content not in WORKER_MARKERS + (DONE,):  # a guide: the ledger has its words
+                continue
+            name = re.sub(r"\s*\[[0-9a-fA-F]{6,36}\].*", "", cell)
+            name = re.sub(r"^(?:[^\w(']+)?(?:\(g\)\s*)?", "", name).strip("' ") or "untitled"
+            for at, text in transcript_texts(path, since):
+                hits += clause_hits(text, at, "'%s' [%s]" % (name, rid))
+    return hits
+
+
+def verification_rows(ledger):
+    """{key: {thing, where, result, checked, evidence, recheck}} from the ledger's Verifications table."""
+    found, inside = {}, False
+    for line in open(ledger, errors="replace"):
+        if line.startswith("## "):
+            inside = line.startswith(VERIFY_SECTION)
+        elif inside and line.lstrip().startswith("|"):
+            cells = split_row(line)
+            if len(cells) >= 6 and not set(cells[0]) <= set("-: ") and cells[0] != "Thing":
+                found[thing_key(cells[0])] = dict(zip(("thing", "where", "result", "checked", "evidence", "recheck"),
+                                                      cells))
+    return found
+
+
+def last_review(ledger):
+    inside = False
+    for line in open(ledger, errors="replace"):
+        if line.startswith("## "):
+            inside = line.startswith(VERIFY_SECTION)
+        elif inside and line.startswith(REVIEW_STAMP):
+            try:
+                return time.mktime(time.strptime(line[len(REVIEW_STAMP):].strip(), TIME_FORMAT))
+            except ValueError:
+                return None
+    return None
+
+
+def stamp_review(ledger):
+    lines = open(ledger, errors="replace").read().splitlines(True)
+    start, end = section_span(lines, VERIFY_SECTION, VERIFY_SECTION, "## Log")
+    text = REVIEW_STAMP + time.strftime(TIME_FORMAT) + "\n"
+    old = [i for i in range(start + 1, end) if lines[i].startswith(REVIEW_STAMP)]
+    if old:
+        lines[old[0]] = text
+    else:
+        at = end
+        while at > start + 1 and not lines[at - 1].strip():
+            at -= 1
+        lines.insert(at, text)
+    write_ledger(ledger, lines)
+
+
+def followups(ledger, days=FOLLOWUP_DAYS, transcripts=True, now=None):
+    """{propose, recheck}: things that reached prod, staging or a merge in the last `days` with no Verifications row,
+    and rows left "not-exercised" whose Re-check time has come. Strongest place first, then newest."""
+    now = now or time.time()
+    since = now - days * 86400
+    hits = ledger_hits(ledger, since, now) + (transcript_hits(ledger, since) if transcripts else [])
+    things = {}
+    for h in hits:
+        t = things.setdefault(h["key"], dict(h, sources=[]))
+        if (RANK[h["where"]], h["date"] or 0) > (RANK[t["where"]], t["date"] or 0):
+            t.update(where=h["where"], date=h["date"], evidence=h["evidence"])
+        if h["source"] not in t["sources"]:
+            t["sources"].append(h["source"])
+    rows, recheck = verification_rows(ledger), []
+    for key, row in rows.items():
+        if row["result"].lower().replace(" ", "-") not in ("not-exercised", "not-exercised-yet"):
+            continue
+        try:
+            due = time.mktime(time.strptime(row["recheck"], TIME_FORMAT)) <= now
+        except ValueError:
+            due = True
+        if due:
+            recheck.append(row)
+    propose = [t for key, t in things.items() if key not in rows]
+    propose.sort(key=lambda t: (-RANK[t["where"]], -(t["date"] or 0)))
+    return dict(propose=propose, recheck=recheck)
+
+
+def followup_hours():
+    try:
+        return float(os.environ.get("SESSION_GUIDE_FOLLOWUP_HOURS", FOLLOWUP_HOURS))
+    except ValueError:
+        return FOLLOWUP_HOURS
+
+
+def followup_due(ledger):
+    """How many things a review would find in the ledger alone, when a review is due; else 0. Off at 0 hours."""
+    hours, last = followup_hours(), last_review(ledger)
+    if hours <= 0 or (last and time.time() - last < hours * 3600):
+        return 0
+    found = followups(ledger, transcripts=False)
+    return len(found["propose"]) + len(found["recheck"])
+
+
+def describe_followup(t):
+    when = time.strftime("%m-%d", time.localtime(t["date"])) if t["date"] else "undated"
+    return "%s %s, seen %s (%s): %s" % (t["key"], "on " + t["where"] if t["where"] in ("prod", "staging") else t["where"],
+                                       when, "; ".join(t["sources"][:3]), t["evidence"][:180])
+
+
+def cmd_followups(args):
+    ledger = os.path.expanduser(args.ledger or require_ledger())
+    found = followups(ledger, args.days, not args.ledger_only)
+    for t in found["propose"][:args.limit]:
+        print("Follow-up: " + describe_followup(t))
+    if len(found["propose"]) > args.limit:
+        print("... and %d more (--limit)" % (len(found["propose"]) - args.limit))
+    for row in found["recheck"]:
+        print("Re-check: %s on %s: not exercised yet at %s (%s)" % (row["thing"], row["where"], row["checked"],
+                                                                   row["evidence"]))
+    last = last_review(ledger)
+    if args.reviewed:
+        stamp_review(ledger)
+        last = time.time()
+    hours = followup_hours()
+    nxt = ("off" if hours <= 0 else time.strftime(TIME_FORMAT, time.localtime(last + hours * 3600)) if last else "now")
+    print("%d to propose, %d to re-check; last review %s; next review %s"
+          % (len(found["propose"]), len(found["recheck"]),
+             time.strftime(TIME_FORMAT, time.localtime(last)) if last else "never", nxt))
+    return 0
+
+
+def cmd_verification(args):
+    ledger = os.path.expanduser(args.ledger or require_ledger())
+    result = args.result.lower().replace(" ", "-").replace("_", "-")
+    result = "not-exercised" if result == "not-exercised-yet" else result
+    if result not in RESULTS:
+        raise SystemExit("result is one of: %s" % ", ".join(RESULTS))
+    thing = " ".join(args.thing.split())
+    if not thing:
+        raise SystemExit("say what was verified, for example '#5560 box default fix'")
+    key, now = thing_key(thing), time.time()
+    old = verification_rows(ledger).get(key, {})
+    seen = [h for h in ledger_hits(ledger, 0, now) if h["key"] == key]
+    where = args.where or old.get("where") or (max(seen, key=lambda h: RANK[h["where"]])["where"] if seen else "—")
+    evidence = " ".join((args.evidence or "").split()) or old.get("evidence") or "—"
+    recheck = (time.strftime(TIME_FORMAT, time.localtime(now + args.recheck_hours * 3600))
+               if result == "not-exercised" else "—")
+    write_row(ledger, VERIFY_SECTION, VERIFY_SECTION, VERIFY_TABLE, lambda cells: thing_key(cells[0]), key,
+              [thing, where, result, time.strftime(TIME_FORMAT, time.localtime(now)), evidence, recheck], before="## Log")
+    print("%s: %s (%s)%s" % (thing, result, where, "; re-check from " + recheck if result == "not-exercised" else ""))
     return 0
 
 
@@ -812,13 +1118,27 @@ def main(argv=None):
     unwatched.add_argument("session", nargs="?")
     done = sub.add_parser("done", help='closed: "\u2705 " before its title, never orange, gray, blue or red again')
     done.add_argument("session", nargs="?")
+    follow = sub.add_parser("followups", help="recent fixes and deployments with no verification recorded")
+    follow.add_argument("ledger", nargs="?")
+    follow.add_argument("--days", type=float, default=FOLLOWUP_DAYS)
+    follow.add_argument("--ledger-only", action="store_true", help="skip the sessions' transcripts")
+    follow.add_argument("--limit", type=int, default=12, help="print at most this many to propose")
+    follow.add_argument("--reviewed", action="store_true", help="stamp the review as done now")
+    verify = sub.add_parser("verification", help="record a verification of a fix or deployment")
+    verify.add_argument("thing")
+    verify.add_argument("result", help=" | ".join(RESULTS))
+    verify.add_argument("evidence", nargs="?", default="")
+    verify.add_argument("--where", help="prod, staging, merged, ... (default: what the ledger says)")
+    verify.add_argument("--recheck-hours", type=float, default=RECHECK_HOURS)
+    verify.add_argument("--ledger")
     args = p.parse_args(argv)
     commands = {"hook": lambda a: cmd_hook(), "mark": cmd_mark, "unmark": cmd_unmark, "retire": cmd_retire,
                 "guided": lambda a: set_level(a, GUIDED, guided_prefix()),
                 "watched": lambda a: set_level(a, WATCHED, watched_prefix()),
                 "active": lambda a: set_level(a, ACTIVE, active_prefix()),
                 "unguided": cmd_unguided, "unwatched": cmd_unguided, "done": cmd_done, "sweep": cmd_sweep,
-                "settle": cmd_settle, "waiting": cmd_waiting, "sleep": cmd_sleep, "unwait": cmd_unwait}
+                "settle": cmd_settle, "waiting": cmd_waiting, "sleep": cmd_sleep, "unwait": cmd_unwait,
+                "followups": cmd_followups, "verification": cmd_verification}
     return commands[args.cmd](args)
 
 

@@ -5,6 +5,21 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-11-03
+
+### Added
+
+- Follow-up verification of recent fixes and deployments. About once a day (`SESSION_GUIDE_FOLLOWUP_HOURS`, default 24,
+  0 = off) the hook tells the guide a review is due. `guide_title.py followups` lists the PRs and versions that the
+  ledger's last 3 days or the sessions' transcript reports say reached production, staging, a merge or a release, with
+  no verification recorded; the guide weeds the list and proposes a read-only "verify <thing>" session for each through
+  the Open items flow. `guide_title.py verification <thing> <result> "<evidence>"` records proposed, running, verified,
+  not-exercised (listed again for a re-check after 24 hours), broken or skipped in the ledger's new Verifications table.
+- `references/verify-followup.md`: the brief for that read-only session. It reviews the merged code and the intended
+  behaviour, states the expected behaviour in concrete terms (numbers where money is involved), checks real data and
+  logs since the deploy, and reports verified, not exercised yet or broken, with evidence and loose ends. Database and
+  log tools are named by role, so `local.md` can name the real ones.
+
 ## [0.1.11] - 2026-11-02
 
 ### Added

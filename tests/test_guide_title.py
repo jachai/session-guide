@@ -686,5 +686,113 @@ class SettleTest(GuideTitleBase):
         self.assertIn("no open row", self.run_script("waiting", WORKER, "Merge #142").stderr)
 
 
+class FollowupsTest(GuideTitleBase):
+    """The guide finds recent fixes and deployments with no verification and records each one it proposes or checks."""
+    TODAY = time.strftime("%m-%d")
+    OLD = time.strftime("%m-%d", time.localtime(time.time() - 10 * 86400))
+
+    def setUp(self):
+        super().setUp()
+        self.keep_open_rows_alive()
+        self.assertEqual(self.run_script("mark", self.ledger, "--session", GUIDE).returncode, 0)
+        open(self.ledger, "a").write(
+            "\n## Log (last ~15)\n"
+            "- %s 10:0x #142 ON PROD: Deploy to cluster success 10:01Z @abc123.\n"
+            "- 10:3x #143 MERGED 09:00Z; #144 not yet merged; asked Jonathan to merge #145.\n"
+            "- 10:4x session-guide v1.2.3 tagged and pushed. Branch pushed for #150.\n"
+            "- %s #99 ON PROD.\n"
+            "| Search | on staging since %s (#160) | audit | — | — |\n" % (self.TODAY, self.OLD, self.TODAY))
+
+    def followups(self, *args):
+        r = self.run_script("followups", self.ledger, *args)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        return r.stdout
+
+    def verification(self, *args):
+        return self.run_script("verification", *args, "--ledger", self.ledger)
+
+    def context(self, **env):
+        out = self.hook(**env).stdout
+        return json.loads(out)["hookSpecificOutput"].get("additionalContext", "") if out else ""
+
+    def assistant_line(self, text, age=0, sidechain=False):
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() - age))
+        return json.dumps({"type": "assistant", "timestamp": stamp, "isSidechain": sidechain,
+                           "message": {"content": [{"type": "text", "text": text}]}}) + "\n"
+
+    def test_lists_what_reached_prod_staging_a_merge_or_a_tag_and_skips_plans_and_old_lines(self):
+        out = self.followups("--ledger-only")
+        self.assertIn("Follow-up: #142 on prod, seen %s (ledger): %s 10:0x #142 ON PROD" % (self.TODAY, self.TODAY), out)
+        self.assertIn("Follow-up: #143 merged", out)
+        self.assertIn("Follow-up: v1.2.3 released", out)
+        self.assertIn("Follow-up: #160 on staging", out)
+        for absent in ("#144", "#145", "#150", "#99"):
+            self.assertNotIn(absent, out)
+        self.assertLess(out.index("#142"), out.index("#160"))
+        self.assertLess(out.index("#160"), out.index("#143"))
+        self.assertIn("4 to propose, 0 to re-check; last review never; next review now", out)
+        self.assertIn("#99 on prod", self.followups("--ledger-only", "--days", "30"))
+
+    def test_a_recorded_verification_hides_it_and_lands_in_its_own_section(self):
+        r = self.verification("#142 billing fix", "verified", "'verify #142' [abcdef]: 7 orders, 0 refusals")
+        self.assertEqual((r.returncode, r.stdout), (0, "#142 billing fix: verified (prod)\n"))
+        self.assertNotIn("#142", self.followups("--ledger-only"))
+        ledger = open(self.ledger).read()
+        self.assertLess(ledger.index("## Verifications"), ledger.index("## Log"))
+        self.assertIn("| #142 billing fix | prod | verified |", ledger)
+        self.verification("#142", "broken")  # an update keeps one row and its evidence
+        ledger = open(self.ledger).read()
+        self.assertEqual(ledger.count("| #142"), 1)
+        self.assertIn("| #142 | prod | broken |", ledger)
+        self.assertIn("7 orders, 0 refusals", ledger)
+        self.assertNotIn("#142", self.followups("--ledger-only"))
+
+    def test_every_open_result_hides_it_until_a_not_exercised_one_is_due_again(self):
+        for result in ("proposed", "running", "skipped"):
+            self.assertEqual(self.verification("#143", result).returncode, 0)
+            self.assertNotIn("#143", self.followups("--ledger-only"))
+        self.verification("#143", "not exercised yet", "no orders since deploy")
+        self.assertNotIn("#143", self.followups("--ledger-only"))
+        self.verification("#143", "not-exercised", "--recheck-hours", "0")
+        self.assertIn("Re-check: #143 on merged: not exercised yet at", self.followups("--ledger-only"))
+        self.assertIn("no orders since deploy", self.followups("--ledger-only"))
+
+    def test_verification_refuses_an_unknown_result_or_an_empty_thing(self):
+        self.assertIn("result is one of", self.verification("#142", "looks fine").stderr)
+        self.assertIn("say what was verified", self.verification("  ", "verified").stderr)
+        self.assertNotIn("## Verifications", open(self.ledger).read())
+
+    def test_the_hook_says_a_review_is_due_until_it_is_stamped_and_can_be_turned_off(self):
+        self.assertIn("session-guide follow-ups: the review of recent fixes and deployments is due (last review never)",
+                      self.context())
+        self.assertNotIn("follow-ups", self.context(SESSION_GUIDE_FOLLOWUP_HOURS="0"))
+        out = self.followups("--ledger-only", "--reviewed")
+        self.assertIn("last review %s" % time.strftime("%Y-%m-%d"), out)
+        self.assertRegex(open(self.ledger).read(), r"## Verifications\nLast review: \d{4}-\d\d-\d\d \d\d:\d\d\n")
+        self.assertNotIn("follow-ups", self.context())
+        self.assertIn("follow-ups", self.context(SESSION_GUIDE_FOLLOWUP_HOURS="0.0001"))
+        self.verification("#142", "running")  # the table goes above the stamp
+        ledger = open(self.ledger).read()
+        self.assertLess(ledger.index("| #142"), ledger.index("Last review:"))
+        self.assertEqual(ledger.count("Last review:"), 1)
+
+    def test_a_ledger_with_nothing_deployed_never_asks_for_a_review(self):
+        open(self.ledger, "w").write(LEDGER)
+        self.assertNotIn("follow-ups", self.context())
+
+    def test_recent_reports_in_the_sessions_transcripts_count_with_their_session(self):
+        path = os.path.join(self.cfg, "projects", "-tmp-repo", "3fa9c100-0000-4000-8000-000000000000.jsonl")
+        with open(path, "a") as f:
+            f.write(self.assistant_line("PR #170 is merged and ON PROD since 10:05Z. Next I check #171 once merged."))
+            f.write(self.assistant_line("#172 ON PROD", age=5 * 86400))
+            f.write(self.assistant_line("#173 ON PROD", sidechain=True))
+        out = self.followups()
+        self.assertIn("Follow-up: #170 on prod", out)
+        self.assertIn("('billing export lead' [3fa9c1]): PR #170 is merged and ON PROD", out)
+        for absent in ("#171", "#172", "#173"):
+            self.assertNotIn(absent, out)
+        self.assertNotIn("#170", self.followups("--ledger-only"))
+
+
 if __name__ == "__main__":
     unittest.main()

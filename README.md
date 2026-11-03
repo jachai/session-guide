@@ -195,11 +195,38 @@ A session that has gone quiet for 2 hours in neither state is flagged to the gui
 `guide_title.py settle <ledger>` shows the same list, plus what is due and what is asleep. Reminders are a one-shot wake in
 the guide session, so they fire only while a guide is running; a new guide picks them up from the ledger.
 
+## Shipped isn't verified
+
+About once a day the guide looks back over recent work for fixes and deployments that reached production or staging
+(merged PRs, "ON PROD" and deploy lines in its ledger, and reports in the sessions' transcripts) with no verification
+recorded, and proposes a follow-up for each in its interview:
+
+> Start 'verify #142' to check the refund fee fix on prod? It reads the merged diff, states what should happen now (a
+> store-fault return of 200.00 on a 600.00 order refunds 200.00 with the 15.00 fee waived), then counts refunds since the
+> 11:17Z deploy in the read-only prod DB and searches the logs for errors on that path. (yes recommended)
+
+A yes starts a read-only session from the [verify follow-up brief](skills/session-guide/references/verify-followup.md):
+it reviews the merged code and the intended behaviour, states the expected behaviour with numbers, checks real data
+(read-only queries, aggregates and ids) and the logs since the deploy, and reports **verified**, **not exercised yet**
+(no traffic; the guide re-checks a day later) or **broken** (a fix goes first in the next interview), with evidence and
+any new loose ends. The brief names tools by role ("your read-only prod DB tool", "your log search tool"); name your real
+ones in `local.md`.
+
+```
+$ python3 skills/session-guide/scripts/guide_title.py followups
+Follow-up: #142 on prod, seen 10-27 (ledger; 'refund fix lead' [3fa9c1]): 10-27 11:47 #142 ON PROD @a1b2c3d.
+1 to propose, 0 to re-check; last review 2026-10-26 14:55; next review 2026-10-27 14:55
+$ python3 skills/session-guide/scripts/guide_title.py verification "#142 refund fee fix" running "'verify #142' [9a8b7c]"
+```
+
+Results live in the ledger's Verifications table. `SESSION_GUIDE_FOLLOWUP_HOURS` sets the cadence (default 24; 0 turns
+it off).
+
 ## The ledger
 
 `~/.claude/session-guide/<slug>/ledger.md` holds Streams, Order/gates, Sessions, Decisions (numbered, FINAL unless
 struck), Waiting on you (a table with the action and when to remind you), Open items (a table: Item | Owner | Next action | Status, where every row has an owner or
-ASK), and a 15-line log. See the
+ASK), Verifications (each follow-up check and its verdict), and a 15-line log. See the
 [template](skills/session-guide/references/ledger-template.md). It's plain Markdown, so you can read and edit it
 yourself.
 
