@@ -20,6 +20,10 @@ A typical answer when you ask the guide "what's next?":
 1. Merge #142 (green, mergeable, no deploy running) — https://github.com/you/app/pull/142
 2. 'search reindex worker' [b5c6d7]: one refund rule to decide (below)
 
+**Results for you**
+- Pricing deck, slide 4: https://claude.ai/artifact/abc123 — the new margin table renders, checked by 'deck lead' [7a8b9c]
+- Billing export review: https://claude.ai/artifact/def456 — 3 findings, asked 13:05, no verdict yet
+
 **Streams**
 - Billing export: develop copy green → next: your merge, then the staging gate ('billing export lead' [3fa9c1])
 - Search reindex: on staging → next: backfill after the refund rule ('search reindex worker' [b5c6d7])
@@ -195,6 +199,30 @@ A session that has gone quiet for 2 hours in neither state is flagged to the gui
 `guide_title.py settle <ledger>` shows the same list, plus what is due and what is asleep. Reminders are a one-shot wake in
 the guide session, so they fire only while a guide is running; a new guide picks them up from the ledger.
 
+A question the guide owes you later ("ask this afternoon") is a reminder too, written the moment the guide says it:
+`guide_title.py waiting ask "<question>" --hours 3`. It is a dated row in the same table, so it survives a guide
+handoff instead of living in the old guide's head.
+
+## Results you asked for get a verdict
+
+A finished deliverable you asked for (a doc, a deck or slide, a review, a report, a release, a PR ready for you) is not
+done when the worker says so. Two things happen first:
+
+- **Look before done.** The worker opens it the way you will, rendered and at the exact link, and confirms the change
+  shows. A report without that is "delivered, unchecked", and the guide sends the worker back to look before you hear
+  of it.
+- **Results for you.** Every status reply leads with what finished since the last one, each with its link, under a
+  "Results for you" heading right after your own actions and before the streams. Each one is a question in the
+  interview: Satisfied / Change it / Drop it / Haven't looked yet. "Haven't looked yet" is asked again on the cadence
+  you pick (hourly by default). The stream isn't DONE, and its loose ends aren't closed, until you answer; the worker
+  session may close in the meantime, the ledger row waits.
+
+```
+$ python3 skills/session-guide/scripts/guide_title.py result "pricing deck, slide 4" https://claude.ai/artifact/abc123 --from "deck lead [7a8b9c]"
+$ python3 skills/session-guide/scripts/guide_title.py result-answer "pricing deck" not-looked --every 2
+$ python3 skills/session-guide/scripts/guide_title.py result-answer "pricing deck" change --note "bigger font"
+```
+
 ## Shipped isn't verified
 
 About once a day the guide looks back over recent work for fixes and deployments that reached production or staging
@@ -242,7 +270,7 @@ It can't switch another session itself. Name a different top model (for example 
 ## The ledger
 
 `~/.claude/session-guide/<slug>/ledger.md` holds Streams, Order/gates, Sessions, Decisions (numbered, FINAL unless
-struck), Waiting on you (a table with the action and when to remind you), Open items (a table: Item | Owner | Next action | Status, where every row has an owner or
+struck), Results for you (each finished deliverable, its link and your verdict), Waiting on you (a table with the action and when to remind you, owed questions included), Open items (a table: Item | Owner | Next action | Status, where every row has an owner or
 ASK), Verifications (each follow-up check and its verdict), and a 15-line log. See the
 [template](skills/session-guide/references/ledger-template.md). It's plain Markdown, so you can read and edit it
 yourself.

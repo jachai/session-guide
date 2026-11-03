@@ -5,6 +5,28 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-11-03
+
+### Added
+
+- **Results for you.** A finished deliverable the user asked for (a doc, a deck or slide, a review, a report, a
+  release, a PR ready for them) is recorded with `guide_title.py result "<deliverable>" <link> --from "<title [id6]>"`
+  in the ledger's new Results for you table (deliverable, link, delivered, asked, answer), listed under a new
+  **Results for you** status heading between Needs you now and Streams, and asked about in the interview: Satisfied /
+  Change it / Drop it / Haven't looked yet. `result-answer "<deliverable>" satisfied|change|drop|not-looked` records
+  the verdict; not-looked is asked again on the cadence the user picks (`--every <hours>`, default 1). `settle` and the
+  hook list unanswered results like due reminders. The stream is not DONE, and its loose ends stay open, until the user
+  answers; the worker session may close, the row stays.
+- **Look before done.** Before a worker reports a user-visible deliverable as done, it opens it the way the user will
+  (rendered, at the exact link) and confirms the change shows; the worker contract (rule 9) and SKILL §3 say so. A
+  report without that is "delivered, unchecked": the guide sends a CHECK before presenting it, and the DONE rule in §5
+  needs both that look and the user's Satisfied.
+- **Owed questions survive handoffs.** `guide_title.py waiting ask "<question>" --hours N` (or `--at "YYYY-MM-DD HH:MM"`)
+  writes a dated "owed question [<key>]" row in the waiting table the moment the guide says it owes the user a
+  question, so a successor's `settle` surfaces it; `sleep <key>` and `unwait <key>` move or clear it. The takeover
+  steps read the waiting and results tables first, and the handoff step requires every owed question to be a row.
+- Status replies lead with what finished since the last reply, each with its link, before the stream list.
+
 ## [0.1.13] - 2026-11-03
 
 ### Added

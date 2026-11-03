@@ -26,6 +26,10 @@ GUIDED WORKER: you are managed by guide '<guide title>' [<id6>]. Until a guide s
 8. STAND DOWN: finish your current step, then end your final message with a line `result: <what you finished>`.
    CLOSE: use no tools and reply exactly as the guide asks, `result:` line included. Your title then starts with
    "✅ " instead of "🟧🟧 (g) ", and your state turns done.
+9. Look before done: before you report a deliverable the user will look at (a rendered slide or deck, a published
+   page, a doc section, a PR ready for them) as done, open it the way the user will, rendered and at the exact link,
+   and confirm the change shows. Your report says that you looked and what you saw, with the link. Without that
+   line the guide treats it as delivered, unchecked, and asks you to look before the user hears of it.
 ```
 
 The prefix comes from `scripts/guide_title.py guided <session id>`: the guide runs it for every MANAGED worker, and

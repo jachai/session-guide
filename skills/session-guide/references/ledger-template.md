@@ -15,10 +15,21 @@ doesn't ask again until the session's task changes (`references/model-choice.md`
 for that owner. Status is ASK <time> (in the user's next ask), waiting (with the next check), or DONE (how verified;
 delete DONE rows after a day). Nothing sits here as "whenever you want".
 
+**Results for you** is a table with one row per finished deliverable the user asked for (a doc, a deck or slide, a
+review, a report, a release, a PR ready for them), written by `guide_title.py result` and `result-answer`: the
+deliverable (with the session that made it), its link (the exact one the user opens), when it was delivered, when the
+user was last asked, and the answer: `—` until the user answers, then `satisfied <time>`, `change it <time>: <what>`,
+`dropped <time>`, or `not looked yet; ask again <time> (every N h)`. A row with no answer, or whose ask-again time has
+come, is listed by `settle` and the hook until it is answered. Its stream is not DONE before that, and the row stays
+when the worker session closes. Delete answered rows after a day.
+
 **Waiting on the user** holds a table with one row per session that only the user can move, written by `guide_title.py
 waiting` and `sleep`: the exact action with its full link or command, when it was first asked, and when to remind.
-Remind at is `YYYY-MM-DD HH:MM`, local time; a value that can't be read counts as due. Bullets for items no session owns can
-sit below the table. A MANAGED or WATCHED session with no row here that has gone quiet has to settle (SKILL §7).
+Remind at is `YYYY-MM-DD HH:MM`, local time; a value that can't be read counts as due. A question the guide owes the
+user is a row here too, written by `waiting ask "<question>" --hours N` (or `--at`): its first cell is "owed question
+[<key>]", with a key made from the question, so a new guide's `settle` finds it after a handoff; `sleep <key>` and
+`unwait <key>` move or clear it. Bullets for items no session owns can sit below the table. A MANAGED or WATCHED
+session with no row here that has gone quiet has to settle (SKILL §7).
 
 **Verifications** is a table with one row per fix or deployment the guide proposed to check, written by `guide_title.py
 verification`: Thing (its PR `#N` or version first; that is the key), Where (prod, staging, merged, released), Result
@@ -60,10 +71,17 @@ Updated: <date HH:MM>   Usage: <plan usage, if you track it>
 3. (10-27 13:10, user in guide) Partial refunds follow who-pays.
    Example: order 600.00, customer returns 1 of 3 items (200.00), store at fault → customer refunded 200.00, fee waived.
 
+## Results for you
+| Deliverable | Link | Delivered | Asked | Answer |
+|---|---|---|---|---|
+| pricing deck, slide 4 (deck lead [7a8b9c]) | https://claude.ai/artifact/abc123 | 2026-10-27 12:20 | 2026-10-27 12:20 | — |
+| billing export review (docs lead [8b9c0d]) | https://claude.ai/artifact/def456 | 2026-10-27 11:05 | 2026-10-27 13:05 | not looked yet; ask again 2026-10-27 14:05 (every 1 h) |
+
 ## Waiting on the user
 | Session [id6] | What the user needs to do | Asked | Remind at |
 |---|---|---|---|
 | billing export lead [3fa9c1] | Merge #142: https://github.com/acme/billing/pull/142 | 2026-10-27 12:40 | 2026-10-27 20:40 |
+| owed question [f6506d] | Ask: twin plan link model and exterior areas (from 'twin plan' [a1b2c3]) | 2026-10-27 12:40 | 2026-10-27 15:00 |
 
 ## Open items
 | Item | Owner | Next action | Status |

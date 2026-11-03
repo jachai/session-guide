@@ -2,6 +2,7 @@
 """Tests for skills/session-guide/scripts/guide_title.py. Every test uses its own temp CLAUDE_CONFIG_DIR."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -684,6 +685,139 @@ class SettleTest(GuideTitleBase):
     def test_waiting_refuses_a_session_with_no_open_row(self):
         self.transcript(WORKER)
         self.assertIn("no open row", self.run_script("waiting", WORKER, "Merge #142").stderr)
+
+    def test_an_owed_question_is_a_reminder_that_survives_a_handoff(self):
+        question = "twin plan link model + exterior areas (from 'twin plan' [a1b2c3])"
+        r = self.run_script("waiting", "ask", question, "--hours", "3")
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        key = re.search(r"owed question \[([0-9a-f]{6})\]", r.stdout).group(1)
+        want = time.strftime("%Y-%m-%d %H", time.localtime(time.time() + 3 * 3600))
+        out = self.settle()
+        self.assertIn("Asleep until %s" % want, out)
+        self.assertIn("owed question [%s]: %s" % (key, question), out)
+        self.assertIn("Next reminder: " + want, out)
+        self.assertEqual(self.context(), "")
+        # a fresh guide reads the same ledger: once the time has come, the question is due on its prompt
+        lines = open(self.ledger).read().replace(want, "2020-01-01 09")
+        open(self.ledger, "w").write(lines)
+        self.assertIn("Due: owed question [%s]: %s" % (key, question), self.settle())
+        self.assertIn(question, self.context())
+        self.assertEqual(self.run_script("sleep", key, "2").returncode, 0)
+        self.assertNotIn("Due:", self.settle())
+        self.assertEqual(self.run_script("unwait", key).returncode, 0)
+        self.assertNotIn(question, open(self.ledger).read())
+
+    def test_an_owed_question_is_due_now_by_default_or_at_a_time_and_keeps_one_row(self):
+        self.assertEqual(self.run_script("waiting", "ask", "Ask: which twin plan link model?").returncode, 0)
+        self.assertIn("Due: owed question", self.settle())
+        r = self.run_script("waiting", "ask", "Ask: which twin plan link model?", "--at", "2031-05-06 14:00")
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        self.assertIn("Asleep until 2031-05-06 14:00", self.settle())
+        self.assertEqual(open(self.ledger).read().count("owed question ["), 1)
+        self.assertNotEqual(self.run_script("waiting", "ask", "x", "--at", "tomorrow").returncode, 0)
+        self.assertNotEqual(self.run_script("waiting", "ask", "x", "--hours", "0").returncode, 0)
+        self.assertNotEqual(self.run_script("waiting", self.QUIET, "Merge #142", "--hours", "2").returncode, 0)
+        self.assertNotEqual(self.run_script("sleep", "abcdef", "2").returncode, 0)
+
+
+class ResultsTest(GuideTitleBase):
+    """A finished deliverable waits for the user's verdict, and the guide is told until it has one."""
+    DECK = "deck slide 4: pricing"
+    LINK = "https://claude.ai/artifact/abc123"
+
+    def setUp(self):
+        super().setUp()
+        self.keep_open_rows_alive()
+        self.assertEqual(self.run_script("mark", self.ledger, "--session", GUIDE).returncode, 0)
+        open(self.ledger, "a").write("\n## Open items\n| Item | Owner |\n|---|---|\n\n## Log (last ~15)\n- x\n")
+
+    def settle(self):
+        r = self.run_script("settle", self.ledger)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        return r.stdout
+
+    def context(self):
+        out = self.hook().stdout
+        return json.loads(out)["hookSpecificOutput"].get("additionalContext", "") if out else ""
+
+    def result(self, *args):
+        r = self.run_script("result", *args)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        return r.stdout
+
+    def answer(self, *args):
+        r = self.run_script("result-answer", *args)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        return r.stdout
+
+    def test_a_result_is_unanswered_until_the_user_answers_and_the_row_stays(self):
+        self.result(self.DECK, self.LINK, "--from", "deck lead [3fa9c1]")
+        ledger = open(self.ledger).read()
+        self.assertIn("## Results for you\n| Deliverable | Link | Delivered | Asked | Answer |", ledger)
+        self.assertLess(ledger.index("## Results for you"), ledger.index("## Open items"))
+        self.assertIn("| deck slide 4: pricing (deck lead [3fa9c1]) | %s | " % self.LINK, ledger)
+        out = self.settle()
+        self.assertIn("Unanswered result: deck slide 4: pricing (deck lead [3fa9c1]) " + self.LINK, out)
+        self.assertTrue(out.endswith("0 unsettled, 0 due, 0 asleep, 1 result(s) unanswered\n"), out)
+        self.assertIn("1 finished deliverable(s) have no verdict", self.context())
+        self.assertIn("Satisfied / Change it / Drop it / Haven't looked yet", self.context())
+        # closing the worker keeps the row: the deliverable, not the session, waits for the answer
+        self.assertEqual(self.run_script("done", "3fa9c100-0000-4000-8000-000000000000").returncode, 0)
+        self.assertIn("Unanswered result", self.settle())
+        self.assertIn("satisfied", self.answer(self.DECK, "satisfied"))
+        self.assertNotIn("result", self.settle())
+        self.assertEqual(self.context(), "")
+        self.assertIn("| satisfied 20", open(self.ledger).read())
+
+    def test_every_answer_form_is_understood(self):
+        self.result(self.DECK, self.LINK)
+        for given, want in (("Change it", "change it"), ("drop-it", "dropped"), ("haven't looked", "not looked yet"),
+                            ("satisfied", "satisfied")):
+            self.answer(self.DECK, given)
+            self.assertIn("| " + want, open(self.ledger).read())
+        self.assertNotEqual(self.run_script("result-answer", self.DECK, "maybe").returncode, 0)
+        self.assertNotEqual(self.run_script("result-answer", "no such thing", "satisfied").returncode, 0)
+        self.assertNotEqual(self.run_script("result", "", self.LINK).returncode, 0)
+
+    def test_not_looked_asks_again_on_the_cadence_the_user_picks(self):
+        self.result(self.DECK, self.LINK)
+        self.answer(self.DECK, "not-looked", "--every", "2")
+        want = time.strftime("%Y-%m-%d %H", time.localtime(time.time() + 2 * 3600))
+        out = self.settle()
+        self.assertIn("Result asleep until %s" % want, out)
+        self.assertIn("Next reminder: " + want, out)
+        self.assertNotIn("Unanswered result", out)
+        self.assertEqual(self.context(), "")
+        lines = open(self.ledger).read().replace("ask again " + want, "ask again 2020-01-01 09")
+        open(self.ledger, "w").write(lines)
+        self.assertIn("Unanswered result", self.settle())
+        self.assertIn("no verdict", self.context())
+        self.answer(self.DECK, "not-looked")  # the cadence is remembered
+        self.assertIn("(every 2 h)", open(self.ledger).read())
+        self.assertIn("Result asleep until %s" % want, self.settle())
+        self.assertNotEqual(self.run_script("result-answer", self.DECK, "not-looked", "--every", "0").returncode, 0)
+
+    def test_a_change_then_a_repeat_result_asks_again_on_the_same_row(self):
+        self.result(self.DECK, self.LINK, "--from", "deck lead [3fa9c1]")
+        self.answer(self.DECK, "change", "--note", "bigger font")
+        self.assertIn("| change it 20", open(self.ledger).read())
+        self.assertIn(": bigger font |", open(self.ledger).read())
+        self.assertNotIn("result", self.settle())
+        self.result(self.DECK, self.LINK + "?v=2")
+        ledger = open(self.ledger).read()
+        self.assertEqual(ledger.count("deck slide 4"), 1)
+        self.assertIn("(deck lead [3fa9c1]) | %s?v=2 | " % self.LINK, ledger)
+        self.assertIn("Unanswered result", self.settle())
+        self.result("deck slide 5: roadmap", self.LINK)
+        self.assertNotEqual(self.run_script("result-answer", "deck slide", "satisfied").returncode, 0)
+        self.assertIn("satisfied", self.answer("deck slide 5", "satisfied"))
+
+    def test_a_link_with_a_pipe_survives(self):
+        link = "https://example.com/a?x=1|2"
+        self.result(self.DECK, link)
+        self.assertIn(link, self.settle())
+        self.answer(self.DECK, "drop")
+        self.assertIn("dropped", open(self.ledger).read())
 
 
 class FollowupsTest(GuideTitleBase):

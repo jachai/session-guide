@@ -13,8 +13,14 @@
     python3 guide_title.py sweep [<ledger>] [--hours 12]       list recently active sessions the ledger doesn't have
     python3 guide_title.py settle [<ledger>] [--idle-hours 2]  which sessions aren't settled, which reminders are due
     python3 guide_title.py waiting <id> "<what the user does>" it waits on the user: a reminder, due now
+    python3 guide_title.py waiting ask "<question>" [--hours N | --at "YYYY-MM-DD HH:MM"]
+                                                               the guide owes the user a question: a reminder row
     python3 guide_title.py sleep <id> <hours>                  put that reminder off
     python3 guide_title.py unwait <id>                         it no longer waits on the user: the reminder goes
+    python3 guide_title.py result "<deliverable>" <link> [--from "<title [id6]>"]
+                                                               a finished deliverable for the user: asks for a verdict
+    python3 guide_title.py result-answer "<deliverable>" <satisfied | change | drop | not-looked> [--note "…"]
+                                                               [--every <hours>]   the user's verdict (not-looked: ask again)
     python3 guide_title.py followups [<ledger>] [--days 3] [--reviewed]   recent fixes/deployments with no verification
     python3 guide_title.py verification <thing> <result> ["<evidence>"]   record one: proposed, running, verified,
                                                                not-exercised (re-check in 24 h), broken or skipped
@@ -70,6 +76,16 @@ table, whose Remind at says when to ask again; `sleep` moves it) or it is closed
 settle lists the sessions quiet for --idle-hours that are neither, and the reminders that are due; the hook gives a guide
 both on every prompt. A running session, and one whose reminder sleeps, is left alone.
 
+A question the guide owes the user ("ask this afternoon") is a reminder too: `waiting ask "<question>"` writes a row
+keyed "owed question [<6 hex chars of the question>]" in the same table, due now or at --hours / --at, so a new guide's
+`settle` finds it after a handoff. `sleep` and `unwait` take that key like a session id.
+
+results: a finished deliverable the user asked for (a doc, a deck or slide, a review, a report, a release, a PR ready
+for them) goes in the ledger's `## Results for you` table with `result`, and stays unanswered until `result-answer`
+records the user's verdict: satisfied, change (the worker gets the change; a repeat `result` resets the row), drop, or
+not-looked (asked again every --every hours, default 1, until answered). settle and the hook list the unanswered ones
+like due reminders. `done` on the worker never removes the row: the deliverable, not the session, waits for the answer.
+
 followups reads the ledger's dated lines from the last --days (a bullet takes the date above it) and what the ledger's
 sessions said in their transcripts since then, and lists every PR (#N, or a /pull/N link) and version (vX.Y.Z) a clause
 says is ON PROD, on staging, deployed, merged, or (versions only) tagged, released or pushed, unless a "not yet", "once",
@@ -109,6 +125,13 @@ IDLE_HOURS = 2  # a MANAGED or WATCHED session quiet this long has to settle
 SLEEP_HOURS = (1, 2, 8, 12, 24, 48)  # the periods the guide offers; `sleep` takes any positive number
 TIME_FORMAT = "%Y-%m-%d %H:%M"  # Asked and Remind at: local time
 WAITING_TABLE = ["| Session [id6] | What the user needs to do | Asked | Remind at |\n", "|---|---|---|---|\n"]
+OWED = "owed question"  # first cell of a waiting row for a question the guide owes the user, then "[<hash6>]"
+RESULTS_SECTION = "## Results for you"
+RESULTS_TABLE = ["| Deliverable | Link | Delivered | Asked | Answer |\n", "|---|---|---|---|---|\n"]
+ANSWERS = ("satisfied", "change", "drop", "not-looked")
+RESULT_HOURS = 1  # "haven't looked yet": ask again this often, unless the user picks another cadence
+UNANSWERED = "\u2014"  # the Answer cell until the user answers
+ASK_AGAIN = re.compile(r"ask again (\d{4}-\d\d-\d\d \d\d:\d\d)(?: \(every ([\d.]+) h\))?")
 
 
 def config_dir():
@@ -285,6 +308,15 @@ def guide_context(session_id):
                      "%s sleep <id> <hours>`. Afterwards keep a wake scheduled for the next reminder that `settle` prints: "
                      "over 60 minutes away, a one-shot CronCreate rather than chained wakeups."
                      % (len(rows), "\n".join(lines), os.path.abspath(__file__)))
+    results = results_status(ledger)["due"]
+    if results:
+        lines = ["- " + describe_result(r) for r in results[:8]] + ["- and %d more" % (len(results) - 8)] * (len(results) > 8)
+        parts.append("session-guide results: %d finished deliverable(s) have no verdict from the user:\n%s\n"
+                     "List each under **Results for you** with its link and one line on the result, then ask with "
+                     "AskUserQuestion, one question each: Satisfied / Change it / Drop it / Haven't looked yet. Record "
+                     "the answer with `python3 %s result-answer \"<deliverable>\" <satisfied|change|drop|not-looked>` "
+                     "(not-looked: ask the cadence, then `--every <hours>`). Its stream isn't DONE, and its loose ends "
+                     "stay open, until the answer is in." % (len(results), "\n".join(lines), os.path.abspath(__file__)))
     due = followup_due(ledger)
     if due:
         last = last_review(ledger)
@@ -458,7 +490,8 @@ def session_levels(ledger):
 
 
 def waiting_rows(ledger):
-    """{id6: {session, what, asked, remind}} from the table in the ledger's `## Waiting on ...` section."""
+    """{id6: {session, what, asked, remind, owed}} from the table in the ledger's `## Waiting on ...` section. `owed`
+    rows are questions the guide owes the user (`waiting ask`), keyed by a hash of the question, not a session."""
     found, inside = {}, False
     for line in open(ledger, errors="replace"):
         if line.startswith("## "):
@@ -467,8 +500,32 @@ def waiting_rows(ledger):
             cells = split_row(line)
             rid = row_id(cells[0])
             if rid and len(cells) >= 4:
-                found[rid] = dict(session=cells[0], what=cells[1].replace("\\|", "|"), asked=cells[2], remind=cells[3])
+                found[rid] = dict(session=cells[0], what=cells[1].replace("\\|", "|"), asked=cells[2], remind=cells[3],
+                                  owed=cells[0].lower().startswith(OWED))
     return found
+
+
+def owed_key(question):
+    """The 6 hex characters that key an owed question's reminder row: the same question gives the same row."""
+    import hashlib
+    return hashlib.sha1(" ".join(question.lower().split()).encode()).hexdigest()[:6]
+
+
+def reminder_key(given, ledger):
+    """The id6 of a waiting row: an owed question's key when `given` is one, else the session `given` names."""
+    key = (given or "").strip().lower()
+    row = waiting_rows(ledger).get(key) if len(key) == 6 else None
+    if row and row["owed"]:
+        return key
+    return resolve_session(given)[:6].lower()
+
+
+def read_time(text):
+    """Epoch of a `YYYY-MM-DD HH:MM` cell, or 0 (due) when it can't be read."""
+    try:
+        return time.mktime(time.strptime(text.strip(), TIME_FORMAT))
+    except ValueError:
+        return 0
 
 
 def write_ledger(ledger, lines):
@@ -559,14 +616,62 @@ def settle_status(ledger, session_id="", idle_hours=IDLE_HOURS):
         if idle >= idle_hours * 3600 and not (state == "working" and session_alive(sid)):
             unsettled.append(dict(id=rid, session=cell, level=level, idle=idle, state=state))
     for rid, row in rows.items():
-        if rid in closed or levels.get(rid, ("", ""))[0] not in ("MANAGED", "WATCHED", "ACTIVE"):
+        if not row["owed"] and (rid in closed or levels.get(rid, ("", ""))[0] not in ("MANAGED", "WATCHED", "ACTIVE")):
             continue
-        try:
-            at = time.mktime(time.strptime(row["remind"], TIME_FORMAT))
-        except ValueError:
-            at = 0
+        at = read_time(row["remind"])
         (due if at <= time.time() else asleep).append(dict(row, id=rid, at=at))
     return dict(unsettled=unsettled, due=sorted(due, key=lambda r: r["at"]), asleep=sorted(asleep, key=lambda r: r["at"]))
+
+
+def result_key(deliverable):
+    return " ".join(deliverable.lower().split())
+
+
+def results_rows(ledger):
+    """{key: {deliverable, link, delivered, asked, answer}} from the ledger's Results for you table."""
+    found, inside = {}, False
+    for line in open(ledger, errors="replace"):
+        if line.startswith("## "):
+            inside = line.startswith(RESULTS_SECTION)
+        elif inside and line.lstrip().startswith("|"):
+            cells = split_row(line)
+            if len(cells) >= 5 and not set(cells[0]) <= set("-: ") and cells[0] != "Deliverable":
+                found[result_key(cells[0])] = dict(zip(("deliverable", "link", "delivered", "asked", "answer"),
+                                                       (c.replace("\\|", "|") for c in cells)))
+    return found
+
+
+def find_result(rows, text):
+    """(key, row) of the one Results row `text` names: its full name, else a unique prefix or part; else (None, None)."""
+    want = result_key(text)
+    keys = [want] if want in rows else [k for k in rows if k.startswith(want)] or [k for k in rows if want in k]
+    if len(keys) > 1:
+        raise SystemExit("%r matches more than one deliverable in Results for you: %s" % (text, "; ".join(sorted(keys))))
+    return (keys[0], rows[keys[0]]) if keys else (None, None)
+
+
+def write_result(ledger, key, row):
+    return write_row(ledger, RESULTS_SECTION, RESULTS_SECTION, RESULTS_TABLE, lambda cells: result_key(cells[0]), key,
+                     row, before=("## Waiting on", "## Open items", "## Verifications", "## Log"))
+
+
+def results_status(ledger, now=None):
+    """{due, asleep}: the Results rows with no answer yet (due), or "not looked yet" ones by their ask-again time."""
+    now, due, asleep = now or time.time(), [], []
+    for key, row in results_rows(ledger).items():
+        answer = row["answer"].strip()
+        if answer in ("", UNANSWERED):
+            due.append(dict(row, key=key, at=0))
+            continue
+        again = ASK_AGAIN.search(answer)
+        if answer.lower().startswith("not looked") or again:
+            at = read_time(again.group(1)) if again else 0
+            (due if at <= now else asleep).append(dict(row, key=key, at=at))
+    return dict(due=sorted(due, key=lambda r: r["at"]), asleep=sorted(asleep, key=lambda r: r["at"]))
+
+
+def describe_result(row):
+    return "%s %s (delivered %s, asked %s)" % (row["deliverable"], row["link"], row["delivered"], row["asked"])
 
 
 def describe_unsettled(row):
@@ -592,17 +697,38 @@ def cmd_settle(args):
         print("Due: %s: %s (asked %s)" % (row["session"], row["what"], row["asked"]))
     for row in found["asleep"]:
         print("Asleep until %s: %s: %s" % (row["remind"], row["session"], row["what"]))
-    print("%d unsettled, %d due, %d asleep" % (len(found["unsettled"]), len(found["due"]), len(found["asleep"])))
-    if found["asleep"]:
-        print("Next reminder: " + found["asleep"][0]["remind"])
+    results = results_status(ledger)
+    for row in results["due"]:
+        print("Unanswered result: " + describe_result(row))
+    for row in results["asleep"]:
+        print("Result asleep until %s: %s %s" % (time.strftime(TIME_FORMAT, time.localtime(row["at"])),
+                                                  row["deliverable"], row["link"]))
+    print("%d unsettled, %d due, %d asleep" % (len(found["unsettled"]), len(found["due"]), len(found["asleep"]))
+          + (", %d result(s) unanswered" % len(results["due"]) if results["due"] else ""))
+    print_next_reminder(ledger, found, results)
     return 0
 
 
+def print_next_reminder(ledger, found=None, results=None):
+    """The earliest sleeping reminder or not-looked result, as "Next reminder: <time>", when there is one."""
+    found, results = found or settle_status(ledger), results or results_status(ledger)
+    times = [r["at"] for r in found["asleep"]] + [r["at"] for r in results["asleep"]]
+    if times:
+        print("Next reminder: " + time.strftime(TIME_FORMAT, time.localtime(min(times))))
+
+
 def cmd_waiting(args):
-    sid, ledger = resolve_session(args.session), require_ledger()
+    ledger = require_ledger()
     what = " ".join(args.what.split())
     if not what:
         raise SystemExit("say what the user needs to do")
+    if args.at and args.hours:
+        raise SystemExit("pass --hours or --at, not both")
+    if args.session == "ask":
+        return owed_question(ledger, what, args)
+    if args.at or args.hours:
+        raise SystemExit("--hours and --at are for `waiting ask`; a session's reminder is due now, then `sleep` it")
+    sid = resolve_session(args.session)
     level, cell = session_levels(ledger).get(sid[:6].lower(), ("", ""))
     if level not in ("MANAGED", "WATCHED", "ACTIVE") or marker_content(sid) == DONE:
         raise SystemExit("%s has no open row in ## Sessions (level %r); give it one first" % (sid[:8], level))
@@ -613,26 +739,94 @@ def cmd_waiting(args):
     return 0
 
 
+def owed_question(ledger, question, args):
+    """A reminder row for a question the guide owes the user, due now, in --hours, or at --at."""
+    if args.hours is not None and args.hours <= 0:
+        raise SystemExit("--hours is a positive number of hours")
+    if args.at and not read_time(args.at):
+        raise SystemExit("--at is local time as %s" % TIME_FORMAT.replace("%Y", "YYYY").replace("%m", "MM")
+                         .replace("%d", "DD").replace("%H", "HH").replace("%M", "MM"))
+    now = time.time()
+    remind = (time.strftime(TIME_FORMAT, time.localtime(read_time(args.at))) if args.at
+              else time.strftime(TIME_FORMAT, time.localtime(now + (args.hours or 0) * 3600)))
+    key = owed_key(question)
+    old = waiting_rows(ledger).get(key)
+    write_waiting(ledger, key, ["%s [%s]" % (OWED, key), question, old["asked"] if old else
+                                time.strftime(TIME_FORMAT, time.localtime(now)), remind])
+    print("owed question [%s] is in the waiting table; ask at %s (sleep / unwait it as `%s`)" % (key, remind, key))
+    return 0
+
+
 def cmd_sleep(args):
-    sid, ledger = resolve_session(args.session), require_ledger()
+    ledger = require_ledger()
+    key = reminder_key(args.session, ledger)
     if args.hours <= 0:
         raise SystemExit("sleep for a positive number of hours; the guide offers %s" % ", ".join(map(str, SLEEP_HOURS)))
-    row = waiting_rows(ledger).get(sid[:6].lower())
+    row = waiting_rows(ledger).get(key)
     if not row:
-        raise SystemExit("%s has no reminder; run `waiting` first" % sid[:8])
+        raise SystemExit("%s has no reminder; run `waiting` first" % key)
     remind = time.strftime(TIME_FORMAT, time.localtime(time.time() + args.hours * 3600))
-    write_waiting(ledger, sid[:6].lower(), [row["session"], row["what"], row["asked"], remind])
-    print("%s sleeps until %s" % (sid[:8], remind))
-    asleep = settle_status(ledger)["asleep"]
-    if asleep:
-        print("Next reminder: " + asleep[0]["remind"])
+    write_waiting(ledger, key, [row["session"], row["what"], row["asked"], remind])
+    print("%s sleeps until %s" % (key, remind))
+    print_next_reminder(ledger)
     return 0
 
 
 def cmd_unwait(args):
-    sid, ledger = resolve_session(args.session), require_ledger()
-    gone = write_waiting(ledger, sid[:6].lower(), None)
-    print("%s %s" % (sid[:8], "no longer waits on the user" if gone else "had no reminder"))
+    ledger = require_ledger()
+    key = reminder_key(args.session, ledger)
+    gone = write_waiting(ledger, key, None)
+    print("%s %s" % (key, "no longer waits on the user" if gone else "had no reminder"))
+    return 0
+
+
+def cmd_result(args):
+    ledger = os.path.expanduser(args.ledger or require_ledger())
+    deliverable, link = " ".join(args.deliverable.split()), " ".join(args.link.split())
+    if not deliverable or not link:
+        raise SystemExit("say what was delivered and give its link, the exact one the user opens")
+    rows = results_rows(ledger)
+    key, old = find_result(rows, deliverable) if rows else (None, None)
+    if old and not args.source:
+        deliverable = old["deliverable"]  # the row keeps its name (and the session noted on it)
+    elif args.source:
+        deliverable += " (%s)" % " ".join(args.source.split())
+    now = time.strftime(TIME_FORMAT)
+    write_result(ledger, key or result_key(deliverable), [deliverable, link, now, now, UNANSWERED])
+    print("%s: %s is in Results for you, unanswered%s; ask the user now: Satisfied / Change it / Drop it / Haven't "
+          "looked yet" % (deliverable, link, " again (it was %s)" % old["answer"] if old else ""))
+    return 0
+
+
+def cmd_result_answer(args):
+    ledger = os.path.expanduser(args.ledger or require_ledger())
+    answer = args.answer.lower().replace("_", "-").replace(" ", "-")
+    answer = {"change-it": "change", "drop-it": "drop", "haven't-looked": "not-looked", "havent-looked": "not-looked",
+              "not-looked-yet": "not-looked", "later": "not-looked"}.get(answer, answer)
+    if answer not in ANSWERS:
+        raise SystemExit("answer is one of: %s" % ", ".join(ANSWERS))
+    if args.every is not None and args.every <= 0:
+        raise SystemExit("--every is a positive number of hours")
+    key, row = find_result(results_rows(ledger), args.deliverable)
+    if not row:
+        raise SystemExit("no deliverable in Results for you matches %r" % args.deliverable)
+    now = time.time()
+    stamp = time.strftime(TIME_FORMAT, time.localtime(now))
+    note = " ".join((args.note or "").split())
+    asked = row["asked"]
+    if answer == "not-looked":
+        again = ASK_AGAIN.search(row["answer"])
+        every = args.every or (float(again.group(2)) if again and again.group(2) else RESULT_HOURS)
+        at = time.strftime(TIME_FORMAT, time.localtime(now + every * 3600))
+        text, asked = "not looked yet; ask again %s (every %g h)" % (at, every), stamp
+        said = "asleep until then"
+    else:
+        text = {"satisfied": "satisfied", "change": "change it", "drop": "dropped"}[answer] + " " + stamp
+        text += ": " + note if note else ""
+        said = {"satisfied": "the stream can close its loose ends", "change": "send the change to its worker; a repeat "
+                "`result` asks again", "drop": "dropped"}[answer]
+    write_result(ledger, key, [row["deliverable"], row["link"], row["delivered"], asked, text])
+    print("%s: %s; %s" % (row["deliverable"], text, said))
     return 0
 
 
@@ -1104,9 +1298,12 @@ def main(argv=None):
     settle = sub.add_parser("settle", help="list sessions that aren't settled and reminders that are due")
     settle.add_argument("ledger", nargs="?")
     settle.add_argument("--idle-hours", type=float, default=IDLE_HOURS)
-    waiting = sub.add_parser("waiting", help="this session waits on the user: a reminder, due now")
-    waiting.add_argument("session")
+    waiting = sub.add_parser("waiting", help="this session waits on the user: a reminder, due now; or `ask`: a "
+                                             "question the guide owes the user")
+    waiting.add_argument("session", help="a session id, or `ask` for an owed question")
     waiting.add_argument("what")
+    waiting.add_argument("--hours", type=float, help="`ask` only: ask in this many hours (default: now)")
+    waiting.add_argument("--at", help="`ask` only: ask at this local time, YYYY-MM-DD HH:MM")
     sleep = sub.add_parser("sleep", help="put a session's reminder off")
     sleep.add_argument("session")
     sleep.add_argument("hours", type=float)
@@ -1131,6 +1328,18 @@ def main(argv=None):
     verify.add_argument("--where", help="prod, staging, merged, ... (default: what the ledger says)")
     verify.add_argument("--recheck-hours", type=float, default=RECHECK_HOURS)
     verify.add_argument("--ledger")
+    result = sub.add_parser("result", help="a finished deliverable for the user, with its link: asks for a verdict")
+    result.add_argument("deliverable", help='for example "deck slide 4: pricing"')
+    result.add_argument("link", help="the exact link the user opens")
+    result.add_argument("--from", dest="source", help="the session that delivered it, as 'title [id6]'")
+    result.add_argument("--ledger")
+    answer = sub.add_parser("result-answer", help="the user's verdict on a deliverable")
+    answer.add_argument("deliverable")
+    answer.add_argument("answer", help=" | ".join(ANSWERS))
+    answer.add_argument("--note", help="what to change, or why it was dropped")
+    answer.add_argument("--every", type=float, help="not-looked: ask again every this many hours (default %s)"
+                                                    % RESULT_HOURS)
+    answer.add_argument("--ledger")
     args = p.parse_args(argv)
     commands = {"hook": lambda a: cmd_hook(), "mark": cmd_mark, "unmark": cmd_unmark, "retire": cmd_retire,
                 "guided": lambda a: set_level(a, GUIDED, guided_prefix()),
@@ -1138,7 +1347,8 @@ def main(argv=None):
                 "active": lambda a: set_level(a, ACTIVE, active_prefix()),
                 "unguided": cmd_unguided, "unwatched": cmd_unguided, "done": cmd_done, "sweep": cmd_sweep,
                 "settle": cmd_settle, "waiting": cmd_waiting, "sleep": cmd_sleep, "unwait": cmd_unwait,
-                "followups": cmd_followups, "verification": cmd_verification}
+                "followups": cmd_followups, "verification": cmd_verification, "result": cmd_result,
+                "result-answer": cmd_result_answer}
     return commands[args.cmd](args)
 
 
