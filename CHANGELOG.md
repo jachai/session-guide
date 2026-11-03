@@ -5,6 +5,23 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-11-03
+
+### Added
+
+- The guide picks the model and effort for each session it starts. `references/model-choice.md` is a short table keyed on
+  the task the session does next, with the cost reason for each row: money and business-rule fixes, migrations, release
+  gates and design reviews get the top model at high effort; well-specified builds the top model at medium; verify
+  follow-ups `sonnet` at medium; mechanical edits, CI reads, read-only data checks and status reports `sonnet` at low.
+  The guide starts sessions with `claude --bg --model <alias> --effort <level>`, using aliases so the table stays
+  current; `local.md` can name a different top model.
+- On a takeover, and when the user picks Manage or Watch for a session, the guide reads its model and effort and, when
+  they don't fit its task, asks the user to type `/model <alias>` and `/effort <level>` in its window (the guide can't
+  switch another session). "Keep as is" is recorded, so it isn't asked again until the task changes.
+- A worker's successor is picked again for the next step's task, not copied from its predecessor.
+- The ledger's Sessions table has a Model / effort column.
+- `peek.py` shows the model and effort of a session's last main-thread turn on its first line.
+
 ## [0.1.12] - 2026-11-03
 
 ### Added

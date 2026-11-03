@@ -1,6 +1,6 @@
 ---
 name: session-guide
-description: Make this session the user's GUIDE across several parallel Claude Code sessions — it tracks every stream in one ledger, relays decisions and approvals to worker sessions over SendMessage, interviews the user (workers never ask the user directly), wakes itself while waiting, sweeps recently active sessions and closes finished ones, settles every session it followed as either waiting on the user (with reminders the user can put to sleep) or done, about once a day proposes read-only sessions that verify recent fixes and deployments against the code, the database and the logs, says exactly which session needs the user for what, and hands off to a fresh guide at ~120k context. Use when asked to "be the guide", "release guide", "orchestration guide", "guide me through", "take over as guide", "orchestrate these sessions", "what's next across sessions", or when a session should join or leave a guide (`/session-guide join`, `/session-guide leave`).
+description: Make this session the user's GUIDE across several parallel Claude Code sessions — it tracks every stream in one ledger, relays decisions and approvals to worker sessions over SendMessage, interviews the user (workers never ask the user directly), picks the model and effort for each session it starts and suggests a switch when a session it manages runs the wrong one, wakes itself while waiting, sweeps recently active sessions and closes finished ones, settles every session it followed as either waiting on the user (with reminders the user can put to sleep) or done, about once a day proposes read-only sessions that verify recent fixes and deployments against the code, the database and the logs, says exactly which session needs the user for what, and hands off to a fresh guide at ~120k context. Use when asked to "be the guide", "release guide", "orchestration guide", "guide me through", "take over as guide", "orchestrate these sessions", "what's next across sessions", or when a session should join or leave a guide (`/session-guide join`, `/session-guide leave`).
 ---
 
 # Session guide
@@ -71,8 +71,11 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
    `python3 <skill dir>/scripts/guide_title.py guided <session id>` on each, so its title starts with "🟧🟧 (g) " (a
    repeat is harmless). Run `guide_title.py watched <session id>` on each WATCHED row, so its title starts with
    "⬜⬜ ", and `guide_title.py active <session id>` on each ACTIVE row, so it starts with "🟦🟦 ". The rest go through
-   the sweep (§7) and into your first interview. Then run `python3 <skill dir>/scripts/guide_title.py settle <ledger>`
-   and handle what it lists (§7): reminders only fire while a guide runs, so a new guide is what restarts them.
+   the sweep (§7) and into your first interview. For each MANAGED and WATCHED session, read its model and effort
+   (claude-top's MODEL and EFFORT columns, or peek's first line) into its Sessions row, and check them against
+   `references/model-choice.md` for the task it is on: a misfit goes into your first interview as a switch question
+   (§4). Then run `python3 <skill dir>/scripts/guide_title.py settle <ledger>` and handle what it lists (§7):
+   reminders only fire while a guide runs, so a new guide is what restarts them.
 5. Introduce yourself to every MANAGED worker in **one** message (§3). Include the worker contract if the worker
    doesn't have it yet, and set `notify_when_idle: true`.
 6. Pin your title: `python3 <skill dir>/scripts/guide_title.py mark <ledger path>`. From your next prompt the title
@@ -143,8 +146,8 @@ one. Everything you need from the user goes through `AskUserQuestion`:
    first: while a dialog is open, you are likely paused and worker messages wait.
 2. **Each question stands alone,** because the user may see only the dialog: session title [id6], the full link or
    `!` command, what you checked. Recommended option first.
-3. **Order:** approvals a worker is blocked on, decisions, new sessions, open items (a broken verification first,
-   proposed follow-ups last, §7). At most 4 questions per call.
+3. **Order:** approvals a worker is blocked on, decisions, new sessions, model switches, open items (a broken
+   verification first, proposed follow-ups last, §7). At most 4 questions per call.
    When the user answers, open the next round straight away until nothing is left.
 4. **Shapes:**
    - New session: Manage / Watch / Leave active / Ignore. It gets a row at that level, and its title follows (§3).
@@ -153,6 +156,10 @@ one. Everything you need from the user goes through `AskUserQuestion`:
    - Something only the user can do (a merge, a `!` command, a dialog open in another session's window, which a relay
      can't answer): the question carries the link or command, with Done / Not yet. On Done, verify it. On Not yet,
      keep it under **Needs you now** and ask again at the next wake that has news on it.
+   - Model switch (`references/model-choice.md`): "'<title>' [id6] runs <model>/<effort> on <task>; switch to
+     <model>/<effort>? Type `/model <alias>` and `/effort <level>` in its window." Switched / Keep as is. You can't
+     switch another session yourself. On Switched, check it on its next turn; on Keep as is, write "kept" in its row
+     and don't ask again until its task changes.
    - Reminder that is due (§7), one question per session, with its full action: Done it / Nothing more to do: close it /
      Sleep 1, 2 or 8 hours / Sleep 12, 24 or 48 hours. A sleep answer gets a second question straight away with the exact
      periods, then `guide_title.py sleep <session id> <hours>`. On Done it, verify, then close the session or, if it has
@@ -192,9 +199,14 @@ Guide context: <N>k (hand off at 120k)
 ### 6. Starting and closing worker sessions
 - Start one when the user says to, or when a MANAGED worker handed off and its successor is the next step on the
   path. If the next step isn't obvious, ask once.
-- Start it with `claude --bg` from the worker's worktree, giving it the worker's resume prompt plus the prompt
-  suffix in `references/worker-contract.md`. Record its title and id in the ledger as MANAGED, and run
+- Start it with `claude --bg --model <alias> --effort <level>` from the worker's worktree, giving it the worker's
+  resume prompt plus the prompt suffix in `references/worker-contract.md`. Pick the model and effort from
+  `references/model-choice.md` for the task it does first: money and business-rule fixes, release gates and design
+  reviews get the top model at high effort; mechanical edits, CI reads, read-only checks and status reports get
+  `sonnet` at low. Record its title, id and pick (`sonnet/low`) in the ledger as MANAGED, and run
   `guide_title.py guided <session id>`.
+- A successor of a worker that handed off gets a fresh pick for the **next step's** task, never a copy of its
+  predecessor's model and effort.
 - Prefer a fresh session over pushing a worker that is near its context limit through more work.
 - **Close** a MANAGED session once it is finished (DONE verified, nothing left for it or its subject: every loose end
   is resolved or sits in Open items with another owner) or obsolete (a successor took over, or the stream was dropped).
@@ -219,7 +231,8 @@ Guide context: <N>k (hand off at 120k)
   `python3 <skill dir>/scripts/guide_title.py sweep <ledger>` if you didn't get that list. It needs neither
   claude-top nor ListAgents. Run `guide_title.py active <session id>` on each, so it shows blue at once, peek it so you
   can recommend, and put it in this turn's interview (§4): "'X' [id6] is building the billing fix: manage it?" It
-  stays new, and you keep asking, until the user picks a level.
+  stays new, and you keep asking, until the user picks a level. When the user picks Manage or Watch, check its model and
+  effort as on a takeover (§2, step 4).
 - **Open items on every wake**: re-check the reports and handoffs that arrived since the last wake for new items
   (§4, Open items), then put the rows still marked ASK or "new session (proposed)" into the interview.
 - **Settle on every wake**: nothing the guide followed is forgotten. Every MANAGED or WATCHED session ends in one of
@@ -252,9 +265,9 @@ Guide context: <N>k (hand off at 120k)
      refunds since the 11:17Z deploy in the read-only prod DB and searches the logs for errors on that path.
      (yes recommended)"
   4. Stamp the review: `followups <ledger> --reviewed`.
-  5. On yes, start the session from `references/verify-followup.md` with the brief filled in (§6, MANAGED), and
-     record `verification <thing> running "'verify #142' [id6]"`. On no, `verification <thing> skipped`. Not now
-     leaves the row ASK.
+  5. On yes, start the session from `references/verify-followup.md` with the brief filled in (§6, MANAGED, `sonnet`
+     at medium), and record `verification <thing> running "'verify #142' [id6]"`. On no, `verification <thing>
+     skipped`. Not now leaves the row ASK.
   6. On its report, record the verdict (`verified`, `not-exercised`, `broken`) with one line of evidence. A broken
      verdict becomes an Open items row for a fix and goes first in your next interview; a not-exercised one comes back
      for a re-check after 24 h. Its loose ends become Open items, and the session closes (§6).
@@ -280,7 +293,8 @@ Guide context: <N>k (hand off at 120k)
 3. Cancel wakeups and any reminder cron. Tell each MANAGED worker in one line: "Guide changing; keep reporting in your final message until
    the new guide introduces itself."
 4. Give the user the paste-ready prompt: `/session-guide` followed by "Take over as guide. Ledger: <path>." Name the
-   one next action. If the user asks, start the next guide yourself with `claude --bg`.
+   one next action. If the user asks, start the next guide yourself with `claude --bg --model opus --effort medium`
+   (or local.md's top model).
 5. Once the successor has introduced itself (or sent you RETIRE), retire yourself instead of ending on a question:
    `python3 <skill dir>/scripts/guide_title.py retire`, then end with a final message whose last line is
    `result: <slug> guide retired and handed over to [<new id6>]`. Your title turns faded red and your state turns done.

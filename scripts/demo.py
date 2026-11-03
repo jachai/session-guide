@@ -42,8 +42,10 @@ def main():
             if ask:
                 content.append({"type": "tool_use", "name": "AskUserQuestion",
                                 "input": {"questions": [{"question": q, "options": []} for q in ask]}})
-            rows.append({"type": "assistant", "message": {"content": content,
-                                                          "usage": {"input_tokens": 2, "cache_read_input_tokens": ctx}}})
+            model, effort = ("claude-opus-5-5", "medium") if sid == "e8f9a0b1" else ("claude-opus-5-5", "high")
+            rows.append({"type": "assistant", "perTurnEffort": effort,
+                         "message": {"model": model, "content": content,
+                                     "usage": {"input_tokens": 2, "cache_read_input_tokens": ctx}}})
             with open(os.path.join(proj, sid + "-demo.jsonl"), "w") as f:
                 f.write("\n".join(json.dumps(r) for r in rows) + "\n")
         env = dict(os.environ, CLAUDE_CONFIG_DIR=cfg)

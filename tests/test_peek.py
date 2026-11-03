@@ -77,6 +77,22 @@ class PeekTest(unittest.TestCase):
         self.write("e5f6a7b8", [assistant(LONG, ctx=90000), assistant(LONG, ctx=10000, sidechain=True)])
         self.assertIn("ctx 90k", self.peek("e5f6a7b8"))
 
+    def test_model_and_effort_of_the_last_main_thread_turn(self):
+        def request(model, effort, source="repl_main_thread"):
+            return {"type": "api-request", "querySource": source,
+                    "params": {"model": model, "output_config": {"effort": effort}}}
+        turn = assistant(LONG)
+        turn["message"]["model"], turn["perTurnEffort"] = "claude-sonnet-5-5", "low"
+        error = assistant("API error")
+        error["message"]["model"] = "<synthetic>"
+        self.write("a7b8c9d0", [request("claude-opus-5-5", "high"), assistant(LONG), turn, error,
+                                request("claude-haiku-5-5", "max", source="agent:custom")])
+        self.assertIn("· claude-sonnet-5-5 / low", self.peek("a7b8c9d0"))
+        self.write("b8c9d0e1", [request("claude-opus-5-5", "xhigh"), assistant(LONG)])
+        self.assertIn("· claude-opus-5-5 / xhigh", self.peek("b8c9d0e1"))
+        self.write("c9d0e1f2", [assistant(LONG)])
+        self.assertIn("· model ? / effort ?", self.peek("c9d0e1f2"))
+
     def test_cross_session_message_and_missing_and_chars(self):
         self.write("f6a7b8c9", [assistant(LONG), user('<cross-session-message from="uds:x">GO: merged</cross-session-message>')])
         out = self.peek("f6a7b8c9", "nope0000", "--chars", "40")

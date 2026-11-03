@@ -6,6 +6,10 @@ facts. Aim for under 6 KB: a fresh guide reads this file and nothing older. Writ
 that MANAGED and WATCHED sessions carry, or the "✅ " of closed ones: the Level column already says so. A session with no row is
 new: the title hook counts those live, and the guide asks about them until each has a row.
 
+**Sessions** has a Model / effort column: the guide's pick for a session it started (`sonnet/low`), or what a session it
+took over runs, read from claude-top or peek. "kept <date>" records that the user turned down a switch, so the guide
+doesn't ask again until the session's task changes (`references/model-choice.md`).
+
 **Open items** is a table, not a list. Every row has an Owner: an existing session (title [id6]), "new session
 (proposed)", or the user. A row with no owner yet says ASK in the Owner column. Next action is one concrete step
 for that owner. Status is ASK <time> (in the user's next ask), waiting (with the next check), or DONE (how verified;
@@ -40,14 +44,15 @@ Updated: <date HH:MM>   Usage: <plan usage, if you track it>
 - Gates in force: <playbook name>.
 
 ## Sessions
-| Title [id6] | Level | Role / stream | Worktree @ sha | Address | Ctx | Last seen |
-|---|---|---|---|---|---|---|
-| billing export lead [3fa9c1] | MANAGED | billing lead | worktrees/billing @a1b2c3d | <from= address> | 140k | 12:35 |
-| design spike [b5c6d7] | WATCHED | — | — | — | 90k | 12:02 |
-| notes cleanup [f1a2b3] | ACTIVE | — | — | — | — | 12:20 |
-| personal notes [e8f9a0] | IGNORED | off path | | | | |
-| search reindex lead [d4e5f6] | DONE | closed 10-27 11:50, result line in | — | — | 160k | 11:50 |
-| release guide [c0ffee] | RETIRED | previous guide, handed over 10-27 09:00 | — | — | 121k | 09:00 |
+| Title [id6] | Level | Role / stream | Model / effort | Worktree @ sha | Address | Ctx | Last seen |
+|---|---|---|---|---|---|---|---|
+| billing export lead [3fa9c1] | MANAGED | billing lead | opus/high | worktrees/billing @a1b2c3d | <from= address> | 140k | 12:35 |
+| billing CI reader [2b3c4d] | MANAGED | billing CI reads | sonnet/low | worktrees/billing @a1b2c3d | <from= address> | 40k | 12:30 |
+| design spike [b5c6d7] | WATCHED | — | opus/xhigh, kept 10-27 | — | — | 90k | 12:02 |
+| notes cleanup [f1a2b3] | ACTIVE | — | — | — | — | — | 12:20 |
+| personal notes [e8f9a0] | IGNORED | off path | | | | | |
+| search reindex lead [d4e5f6] | DONE | closed 10-27 11:50, result line in | opus/medium | — | — | 160k | 11:50 |
+| release guide [c0ffee] | RETIRED | previous guide, handed over 10-27 09:00 | — | — | — | 121k | 09:00 |
 
 ## Decisions (FINAL unless struck)
 1. (10-26 10:10, user in guide) Test battery: only NEW failures block a prod merge; older ones go to the PR body and a ticket.

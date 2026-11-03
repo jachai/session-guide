@@ -5,7 +5,8 @@
     python3 peek.py --version
 
 Reads $CLAUDE_CONFIG_DIR/projects/*/<id>*.jsonl (default ~/.claude), read-only. Per session prints:
-  title (latest customTitle), last write time, context tokens of the last turn,
+  title (latest customTitle), last write time, context tokens of the last turn, the model and effort of its last
+  main-thread turn (the guide compares them with references/model-choice.md),
   the last long assistant text (truncated), any AskUserQuestion asked AFTER that text and whether it was answered,
   and the last cross-session message it received.
 Python 3 stdlib only.
@@ -16,7 +17,7 @@ import os
 import sys
 import time
 
-__version__ = "0.1.12"
+__version__ = "0.1.13"
 
 
 def find(prefix):
@@ -33,6 +34,7 @@ def text_of(content):
 
 def peek(path, chars):
     title, ctx, last_text, last_any, ask, answered, last_xmsg = "", 0, "", "", None, False, ""
+    model, effort = "", ""
     for line in open(path, errors="replace"):
         try:
             d = json.loads(line)
@@ -42,7 +44,14 @@ def peek(path, chars):
             title = d["customTitle"]
         m = d.get("message") or {}
         c = m.get("content")
+        if d.get("type") == "api-request" and d.get("querySource") in (None, "repl_main_thread"):
+            params = d.get("params") or {}
+            model = params.get("model") or model
+            effort = (params.get("output_config") or {}).get("effort") or effort
         if d.get("type") == "assistant" and not d.get("isSidechain"):
+            if m.get("model") and not m["model"].startswith("<"):  # "<synthetic>" marks an error turn, not a model
+                model = m["model"]
+            effort = d.get("perTurnEffort") or effort
             u = m.get("usage") or {}
             tok = u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0) + u.get("cache_creation_input_tokens", 0)
             if tok:
@@ -70,7 +79,8 @@ def peek(path, chars):
                             answered = True
     mt = time.strftime("%m-%d %H:%M", time.localtime(os.path.getmtime(path)))
     sid = os.path.basename(path)[:8]
-    print("=== %s [%s] · last write %s · ctx %dk" % (title or "(untitled)", sid, mt, ctx // 1000))
+    print("=== %s [%s] · last write %s · ctx %dk · %s / %s" % (title or "(untitled)", sid, mt, ctx // 1000,
+                                                             model or "model ?", effort or "effort ?"))
     if ask:
         print("ASKED (%s):" % ("answered" if answered else "WAITING ON AN ANSWER"))
         for q in ask:

@@ -177,7 +177,7 @@ building stays with the workers. It may:
 
 - read transcripts, `ListAgents`, and CI/PR/deploy state;
 - message managed workers and relay your approvals;
-- start fresh worker sessions (`claude --bg`) from a worker's resume prompt;
+- start fresh worker sessions (`claude --bg`) from a worker's resume prompt, on the model and effort the task needs;
 - write the ledger.
 
 Browser checks, test batteries on shared environments, and database and log checks go to a worker or to you.
@@ -222,6 +222,23 @@ $ python3 skills/session-guide/scripts/guide_title.py verification "#142 refund 
 Results live in the ledger's Verifications table. `SESSION_GUIDE_FOLLOWUP_HOURS` sets the cadence (default 24; 0 turns
 it off).
 
+## The right model for each session
+
+The guide picks a model and an effort for every session it starts, from a short
+[table](skills/session-guide/references/model-choice.md) keyed on what the session does next: money and business-rule
+fixes, release gates and design reviews get the top model at high effort; mechanical edits, CI reads, read-only data
+checks and status reports get `sonnet` at low; verify follow-ups get `sonnet` at medium. It passes them as
+`claude --bg --model <alias> --effort <level>`, with aliases (`opus`, `sonnet`, `haiku`) so the table stays current, and
+records the pick in the ledger. A worker's successor is picked again for its own next step, not copied.
+
+For a session it didn't start, the guide reads what it runs (claude-top's MODEL and EFFORT, or peek's first line) and,
+when that doesn't fit the task, asks you:
+
+> 'billing CI watcher' [3fa9c1] runs opus/high on CI reads and status reports; switch to sonnet/low? Open it from
+> `claude agents` and type `/model sonnet`, then `/effort low`, in its window. (switch recommended)
+
+It can't switch another session itself. Name a different top model (for example `fable`) in `local.md`.
+
 ## The ledger
 
 `~/.claude/session-guide/<slug>/ledger.md` holds Streams, Order/gates, Sessions, Decisions (numbered, FINAL unless
@@ -244,7 +261,7 @@ The transcript reader the guide uses. You can use it directly:
 
 ```
 $ python3 skills/session-guide/scripts/peek.py b5c6d7e8
-=== search reindex worker · Waiting on a refund rule [b5c6d7e8] · last write 10-27 14:05 · ctx 88k
+=== search reindex worker · Waiting on a refund rule [b5c6d7e8] · last write 10-27 14:05 · ctx 88k · claude-opus-5-5 / high
 ASKED (WAITING ON AN ANSWER):
   - Partial refund on a 3-item order (600.00), customer returns 1 item (200.00), store at fault: refund the 5.00 restocking fee too?
 LAST TEXT: The reindex is done on staging, but one rule needs a decision before I write the backfill. Details below.
