@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-11-03
+
+### Added
+
+- **Not your PR, not your branch.** Before the guide sends any session to write to a PR's branch (merge another branch
+  in, fix a conflict, push a fix, revert), it checks the PR's author and assignee with
+  `gh pr view N --json author,assignees,headRefName,body`. If the PR isn't the user's own, it asks first in the
+  interview, naming the owner ("PR #N is Max's (branch X); let a session push to his branch?"). A user ruling that
+  names the PR in a merge order does not count as that permission. Worker prompts that touch a PR branch carry the
+  owner check result, and the worker contract (rule 10) tells workers to stop and ask when it is missing. Why: a
+  conflict-fix session was sent to a PR from a merge order without the check; it was a teammate's PR and our merge
+  commit landed on their branch and had to be reverted.
+
 ## [0.1.14] - 2026-11-03
 
 ### Added

@@ -50,6 +50,12 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
   The interview). Ask in plain words. A money or business-rule decision always comes with a worked numeric example
   and your recommendation first. Use no internal plan codes unless the user used them first.
 - **Workers never AskUserQuestion the user.** Their decisions come to you (§4).
+- **Not your PR, not your branch.** Before you send ANY session to write to a PR's branch (merge another branch
+  in, fix a conflict, push a fix, revert), check the PR's owner: `gh pr view N --json author,assignees,headRefName,body`.
+  If the PR isn't the user's own (author or assignee is someone else), ask first in the interview, naming the owner:
+  "PR #N is Max's (branch X); let a session push to his branch?" A user ruling that names the PR in a merge order is
+  not that permission. Every worker prompt that touches a PR branch carries the owner check result ("PR #N: author
+  Max, assignee none, branch X, the user approved pushing: yes/no").
 
 ### 2. Start (fresh guide or takeover)
 1. Create or open `<config>/session-guide/<slug>/ledger.md` (template: `references/ledger-template.md`). The slug is
