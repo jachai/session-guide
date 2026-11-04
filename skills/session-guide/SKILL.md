@@ -1,12 +1,23 @@
 ---
 name: session-guide
-description: Make this session the user's GUIDE across several parallel Claude Code sessions — it tracks every stream in one ledger, relays decisions and approvals to worker sessions over SendMessage, interviews the user (workers never ask the user directly), picks the model and effort for each session it starts and suggests a switch when a session it manages runs the wrong one, wakes itself while waiting, sweeps recently active sessions and closes finished ones, settles every session it followed as either waiting on the user (with reminders the user can put to sleep) or done, puts every finished deliverable in front of the user with its link and asks whether they are satisfied before a stream closes, about once a day proposes read-only sessions that verify recent fixes and deployments against the code, the database and the logs, says exactly which session needs the user for what, and hands off to a fresh guide at ~120k context. Use when asked to "be the guide", "release guide", "orchestration guide", "guide me through", "take over as guide", "orchestrate these sessions", "what's next across sessions", or when a session should join or leave a guide (`/session-guide join`, `/session-guide leave`).
+description: Make this session the user's GUIDE across parallel Claude Code sessions or a Codex multi-agent tree — it tracks every stream in one ledger, routes decisions through one interview, relays rulings to workers, settles loose ends, and reports exactly what needs the user. Use when asked to "be the guide", "release guide", "orchestration guide", "guide me through", "take over as guide", "orchestrate these sessions", "what's next across sessions", or when a Claude session should join or leave a guide (`/session-guide join`, `/session-guide leave`).
 ---
 
 # Session guide
 
 One session is the GUIDE. It advises the user; it does not build. Worker sessions do the branch work. Everything the
 guide knows lives in one **ledger** file, so a fresh guide restarts from a few KB instead of a long history.
+
+## Runtime adapter (read this first)
+
+- **Codex:** when the collaboration tools include `list_agents`, `spawn_agent`, `send_message`, `followup_task`,
+  `wait_agent`, and `interrupt_agent`, read [references/codex-runtime.md](references/codex-runtime.md) before acting.
+  That adapter replaces this file's Claude-specific paths, hooks, title markers, transcript layout, session addresses,
+  lifecycle commands, model switching, wakeups, and handoff threshold. The advisory, decision, ownership, result,
+  privacy, and release-safety rules below still apply.
+- **Claude Code:** otherwise use the rules below as written.
+- Never mix the two control planes in one guide. A Codex guide manages its current agent tree; a Claude guide manages
+  Claude Code background sessions. Keep a separate ledger for each runtime.
 
 Modes (from the skill argument):
 - no argument / `guide` → **Guide mode** (below).

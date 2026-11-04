@@ -1,6 +1,8 @@
 # Ledger template
 
 Path: `<config>/session-guide/<slug>/ledger.md`. Rewrite sections **in place** so they always describe *now*.
+For Claude Code, `<config>` is `$CLAUDE_CONFIG_DIR` or `~/.claude`; for Codex it is `$CODEX_HOME` or `~/.codex`.
+Codex rows use canonical task paths such as `/root/billing_fix` in Address and do not depend on colored titles.
 Only `## Log` is append-only, and it keeps the last ~15 lines. Trim older ones; the Decisions list keeps the durable
 facts. Aim for under 6 KB: a fresh guide reads this file and nothing older. Write titles without the "🟧🟧 (g) " or "⬜⬜ " prefix
 that MANAGED and WATCHED sessions carry, or the "✅ " of closed ones: the Level column already says so. A session with no row is

@@ -1,5 +1,9 @@
 # Worker contract
 
+This page is the Claude Code contract. Codex workers use the contract and lifecycle mapping in
+[`codex-runtime.md`](codex-runtime.md); they report through `send_message`/final delivery and do not use Claude title
+hooks or `result:` job-state conventions.
+
 A MANAGED worker follows this. The guide sends it on first contact, or appends the prompt suffix to a session it
 starts. `/session-guide join` adopts it from inside the worker.
 
