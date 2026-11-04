@@ -17,8 +17,9 @@ All notable changes to this project are documented here. The format is based on
 ### Fixed
 
 - Feature branches run the test matrix once through `pull_request` instead of duplicating it through both `push` and
-  `pull_request`. Direct `main` pushes remain covered, and version tags use the release workflow's matrix call; this
-  avoids competing duplicate macOS jobs being cancelled in the hosted-runner queue with no steps executed.
+  `pull_request`. Direct `main` pushes remain covered, and version tags use the release workflow's matrix call. The
+  full Python 3.9/3.14 compatibility matrix runs on Ubuntu, with latest Python also covering macOS, reducing scarce
+  hosted macOS demand from four jobs per feature update to one after jobs were cancelled in queue with no steps.
 
 ## [0.1.15] - 2026-11-03
 
