@@ -2,7 +2,7 @@
 
 # session-guide
 
-One Claude Code session that keeps your parallel sessions, and you, on the same page. When three features are moving
+One Claude Code or Codex session that keeps your parallel sessions, and you, on the same page. When three features are moving
 toward production in five background sessions at once, session-guide turns one more session into the **guide**. It
 reads what every worker last said, routes each worker's questions to you as one interview, relays your rulings back,
 wakes itself while CI and deploys run, and tells you exactly which session needs you, and for what.
@@ -11,7 +11,7 @@ wakes itself while CI and deploys run, and tells you exactly which session needs
 [![release](https://img.shields.io/github/v/release/jachai/session-guide)](https://github.com/jachai/session-guide/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/jachai/session-guide/blob/main/LICENSE)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)
-![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757)
+![Claude Code + Codex](https://img.shields.io/badge/Claude%20Code%20%2B%20Codex-sessions-5b5bd6)
 
 A typical answer when you ask the guide "what's next?":
 
@@ -59,14 +59,14 @@ had a rule for it:
 
 ## Install
 
-As a Claude Code plugin:
+### Claude Code plugin
 
 ```
 /plugin marketplace add jachai/session-guide
 /plugin install session-guide@session-guide
 ```
 
-Or as a plain skill, without the plugin system:
+Or as a plain Claude skill, without the plugin system:
 
 ```sh
 git clone https://github.com/jachai/session-guide
@@ -77,7 +77,22 @@ You need Claude Code with background sessions and cross-session messaging (`Send
 3.9+ for the transcript reader. There are no dependencies. [claude-top](https://github.com/jachai/claude-top) is
 optional but makes the session list nicer.
 
+### Codex skill
+
+```sh
+git clone https://github.com/jachai/session-guide
+cd session-guide && ./install.sh --codex     # add --link when developing the skill
+```
+
+Start from the Codex root thread whose multi-agent tree you want managed, then ask it to use `session-guide` as the
+guide. Codex support uses the native collaboration actions (`list_agents`, `spawn_agent`, `send_message`,
+`followup_task`, `wait_agent`, and `interrupt_agent`). It manages that thread's current agent tree; it does not claim
+to discover or control unrelated top-level Codex threads. Python is optional unless you use the read-only local
+rollout helper.
+
 ## Use
+
+### Claude Code
 
 In the session you want as the guide:
 
@@ -111,7 +126,17 @@ leave` opts it back out. Sessions the guide starts itself are managed automatica
 Other commands: `/session-guide handoff` makes the guide hand off now. Say "take over as guide, ledger: <path>" in a
 fresh session to continue.
 
-## Titles
+### Codex
+
+Ask the root thread, for example: "Use session-guide to guide these streams and manage the agents you start." The
+guide records canonical agent paths such as `/root/billing_fix`, routes questions through one interview, and treats
+each worker's final response as its step report. Codex agents need no `/session-guide join`: agents started by the
+guide are MANAGED, and existing agents are classified through the interview.
+
+Codex and Claude ledgers are separate. A Codex ledger lives under `~/.codex/session-guide/` (or `$CODEX_HOME`); a
+Claude ledger remains under `~/.claude/session-guide/` (or `$CLAUDE_CONFIG_DIR`).
+
+## Claude Code titles
 
 One color per kind of session, so the agents view reads at a glance:
 
@@ -179,9 +204,9 @@ Every WATCHED session's title starts with `⬜⬜ `, from `guide_title.py watche
 The guide is **advisory**. It never branches, commits, pushes, merges or edits code: merges stay with you, and
 building stays with the workers. It may:
 
-- read transcripts, `ListAgents`, and CI/PR/deploy state;
-- message managed workers and relay your approvals;
-- start fresh worker sessions (`claude --bg`) from a worker's resume prompt, on the model and effort the task needs;
+- read transcripts or Codex's current agent tree, and CI/PR/deploy state;
+- message managed workers and relay your approvals through the runtime's native collaboration tool;
+- start fresh workers (`claude --bg` in Claude Code, `spawn_agent` in Codex) only within the authorization rules;
 - write the ledger.
 
 Browser checks, test batteries on shared environments, and database and log checks go to a worker or to you.
@@ -269,11 +294,13 @@ It can't switch another session itself. Name a different top model (for example 
 
 ## The ledger
 
-`~/.claude/session-guide/<slug>/ledger.md` holds Streams, Order/gates, Sessions, Decisions (numbered, FINAL unless
+`<config>/session-guide/<slug>/ledger.md` holds Streams, Order/gates, Sessions, Decisions (numbered, FINAL unless
 struck), Results for you (each finished deliverable, its link and your verdict), Waiting on you (a table with the action and when to remind you, owed questions included), Open items (a table: Item | Owner | Next action | Status, where every row has an owner or
 ASK), Verifications (each follow-up check and its verdict), and a 15-line log. See the
 [template](skills/session-guide/references/ledger-template.md). It's plain Markdown, so you can read and edit it
 yourself.
+
+`<config>` is `~/.claude` / `$CLAUDE_CONFIG_DIR` for Claude Code, and `~/.codex` / `$CODEX_HOME` for Codex.
 
 ## Make it yours
 
@@ -296,6 +323,8 @@ LAST TEXT: The reindex is done on staging, but one rule needs a decision before 
 ```
 
 It is read-only, stdlib only, and honors `CLAUDE_CONFIG_DIR`. `python3 scripts/demo.py` runs it on made-up sessions.
+For a local Codex rollout, pass its thread-id prefix and `--runtime codex`; the helper honors `$CODEX_HOME`. Auto mode
+searches both stores and chooses the newest match. Live Codex status still comes from `list_agents`, not rollout files.
 
 More detail: [how it works](docs/how-it-works.md).
 

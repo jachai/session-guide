@@ -1,5 +1,9 @@
 # Model and effort per session
 
+This table and its `claude --bg` commands are the Claude Code adapter. In Codex, follow
+[`codex-runtime.md`](codex-runtime.md): inherit the current model by default, use only model/effort values exposed by
+the current collaboration tool, and never present Claude `/model` or `/effort` commands as Codex controls.
+
 The guide picks a model and an effort for every session it starts, and checks them on every session it takes over or
 starts to manage (SKILL §2, §6, §7). Pick for the task the session does **next**, not for the stream as a whole.
 

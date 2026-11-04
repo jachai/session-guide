@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Codex multi-agent support through a runtime adapter that maps the guide workflow to Codex's native agent tree and
+  collaboration actions without invoking Claude hooks, titles, job files, or CLI commands. Codex ledgers live under
+  `$CODEX_HOME/session-guide`, and the adapter explicitly limits management to the current tree.
+- `peek.py --runtime codex` reads local Codex rollout metadata, model/effort, context usage, assistant replies,
+  structured questions, and inbound agent messages. Auto mode can resolve Claude or Codex transcripts.
+- `install.sh --codex` installs or links the skill under `$CODEX_HOME/skills`; uninstall keeps ledgers.
+
 ## [0.1.15] - 2026-11-03
 
 ### Added

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for skills/session-guide/scripts/peek.py. Every test uses its own temp CLAUDE_CONFIG_DIR."""
+"""Tests for the Claude and Codex transcript backends. Every test uses isolated config dirs."""
 import json
 import os
 import shutil
@@ -35,6 +35,9 @@ class PeekTest(unittest.TestCase):
         self.cfg = tempfile.mkdtemp(prefix="peek-")
         self.proj = os.path.join(self.cfg, "projects", "-tmp-repo")
         os.makedirs(self.proj)
+        self.codex = os.path.join(self.cfg, "codex")
+        self.rollouts = os.path.join(self.codex, "sessions", "2026", "11", "04")
+        os.makedirs(self.rollouts)
 
     def tearDown(self):
         shutil.rmtree(self.cfg)
@@ -45,10 +48,23 @@ class PeekTest(unittest.TestCase):
                 f.write(json.dumps(r) + "\n")
 
     def peek(self, *args):
-        env = dict(os.environ, CLAUDE_CONFIG_DIR=self.cfg)
+        env = dict(os.environ, CLAUDE_CONFIG_DIR=self.cfg, CODEX_HOME=self.codex)
         p = subprocess.run([sys.executable, PEEK] + list(args), env=env, capture_output=True, text=True)
         self.assertEqual(p.returncode, 0, p.stderr)
         return p.stdout
+
+    def write_codex(self, sid, rows, title=None):
+        path = os.path.join(self.rollouts, "rollout-2026-11-04T12-00-00-%s.jsonl" % sid)
+        with open(path, "w") as f:
+            for row in rows:
+                f.write(json.dumps(row) + "\n")
+        if title:
+            with open(os.path.join(self.codex, "session_index.jsonl"), "a") as f:
+                f.write(json.dumps({"id": sid, "thread_name": title, "updated_at": "2026-11-04T12:00:00Z"}) + "\n")
+
+    @staticmethod
+    def codex_row(kind, payload):
+        return {"timestamp": "2026-11-04T12:00:00Z", "type": kind, "payload": payload}
 
     def test_title_ctx_and_last_text(self):
         self.write("a1b2c3d4", [{"customTitle": "billing export lead"}, assistant("short"), assistant(LONG, ctx=150000)])
@@ -99,6 +115,48 @@ class PeekTest(unittest.TestCase):
         self.assertIn("LAST CROSS-SESSION MSG IN", out)
         self.assertIn("[nope0000] no transcript found", out)
         self.assertIn(" …", out)
+
+    def test_codex_agent_path_context_model_and_last_text(self):
+        sid = "01a1a7b9-f010-7b82-964b-6af748296148"
+        rows = [
+            self.codex_row("session_meta", {"id": sid, "agent_path": "/root/billing", "agent_nickname": "Ada"}),
+            self.codex_row("turn_context", {"model": "gpt-test-sol", "effort": "high"}),
+            self.codex_row("response_item", {"type": "message", "role": "assistant",
+                                               "content": [{"type": "output_text", "text": LONG}]}),
+            self.codex_row("token_usage_record", {"usage": {"input_tokens": 135000}}),
+        ]
+        self.write_codex(sid, rows)
+        out = self.peek(sid[:8], "--runtime", "codex")
+        self.assertIn("/root/billing [01a1a7b9] · codex", out)
+        self.assertIn("ctx 135k", out)
+        self.assertIn("gpt-test-sol / high", out)
+        self.assertIn("LAST TEXT: Billing export wave two", out)
+
+    def test_codex_question_answer_and_inbound_agent_message(self):
+        sid = "01a1a7ba-f010-7b82-964b-6af748296148"
+        call = {"type": "function_call", "name": "request_user_input", "call_id": "call-1",
+                "arguments": json.dumps({"questions": [{"question": "Refund the fee too?"}]})}
+        rows = [
+            self.codex_row("session_meta", {"id": sid, "agent_path": "/root/refunds"}),
+            self.codex_row("response_item", call),
+            self.codex_row("response_item", {"type": "function_call_output", "call_id": "call-1", "output": "yes"}),
+            self.codex_row("response_item", {"type": "agent_message", "author": "/root",
+                                               "recipient": "/root/refunds",
+                                               "content": [{"type": "input_text", "text": "Decision 3 FINAL: yes"}]}),
+        ]
+        self.write_codex(sid, rows)
+        out = self.peek(sid[:8], "--runtime", "codex")
+        self.assertIn("ASKED (answered)", out)
+        self.assertIn("Refund the fee too?", out)
+        self.assertIn("LAST CROSS-SESSION MSG IN: Decision 3 FINAL: yes", out)
+
+    def test_codex_index_title_fallback_and_auto_detection(self):
+        sid = "01a1a7bb-f010-7b82-964b-6af748296148"
+        rows = [self.codex_row("session_meta", {"id": sid}),
+                self.codex_row("response_item", {"type": "message", "role": "assistant",
+                                                   "content": [{"type": "output_text", "text": "Finished."}]})]
+        self.write_codex(sid, rows, title="release check")
+        self.assertIn("release check [01a1a7bb] · codex", self.peek(sid[:8]))
 
     def test_version_and_usage(self):
         self.assertRegex(self.peek("--version"), r"^peek \d+\.\d+\.\d+")
