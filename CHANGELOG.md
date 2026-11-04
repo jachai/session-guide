@@ -14,6 +14,12 @@ All notable changes to this project are documented here. The format is based on
   structured questions, and inbound agent messages. Auto mode can resolve Claude or Codex transcripts.
 - `install.sh --codex` installs or links the skill under `$CODEX_HOME/skills`; uninstall keeps ledgers.
 
+### Fixed
+
+- Feature branches run the test matrix once through `pull_request` instead of duplicating it through both `push` and
+  `pull_request`. Direct `main` pushes remain covered, and version tags use the release workflow's matrix call; this
+  avoids competing duplicate macOS jobs being cancelled in the hosted-runner queue with no steps executed.
+
 ## [0.1.15] - 2026-11-03
 
 ### Added
