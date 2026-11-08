@@ -103,8 +103,8 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
    ledger path or slug. Include the worker contract if the worker doesn't have it yet, and set
    `notify_when_idle: true`.
 6. Pin your title: `python3 <skill dir>/scripts/guide_title.py mark <ledger path>`. From your next prompt the title
-   hook keeps it at "🟥🟥 Sessions Manager (2 managed · 1 watched · 3 active · 1 new) 🟥🟥" (the rows at each level,
-   and the live count of sessions with no row) and undoes any rename. If the session-titles plugin is installed, also
+   hook keeps it at "🟥🟥 Sessions Manager · <slug> (2 managed · 1 watched · 3 active · 1 new) 🟥🟥" (your ledger's
+   slug, the rows at each level, and the live count of sessions with no row) and undoes any rename. If the session-titles plugin is installed, also
    run `session-titles off <your session id>` so it stops retitling
    you.
 7. Reply to the user in the status shape (§5), then open the interview (§4).

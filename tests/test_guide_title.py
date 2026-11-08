@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -14,7 +15,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "skills", "session-guide", "scripts", "guide_title.py")
 GUIDE = "c0ffee12-3456-4789-8abc-def012345678"
 WORKER = "fa11ed00-1234-4567-89ab-cdef01234567"
-TITLE = "🟥🟥 Sessions Manager (2 managed · 1 watched · 0 active · 0 new) 🟥🟥"
+TITLE = "🟥🟥 Sessions Manager · release-2026-10-27 (2 managed · 1 watched · 0 active · 0 new) 🟥🟥"
 LEDGER = """# release-2026-10-27 — guide ledger
 Guide: 'release guide' [c0ffee12] since 10-27 09:00
 
@@ -101,7 +102,7 @@ class GuideTitleTest(GuideTitleBase):
         self.run_script("mark", self.ledger, "--session", GUIDE)
         with open(self.ledger, "w") as f:
             f.write(LEDGER.replace("| design spike [b5c6d7] | WATCHED", "| design spike [b5c6d7] | MANAGED"))
-        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager (3 managed · 0 watched · 0 active · 0 new) 🟥🟥")
+        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager · release-2026-10-27 (3 managed · 0 watched · 0 active · 0 new) 🟥🟥")
 
     def test_title_format_can_be_overridden(self):
         self.run_script("mark", self.ledger, "--session", GUIDE)
@@ -347,7 +348,7 @@ class GuideTitleTest(GuideTitleBase):
         self.transcript("33333333-0000-4000-8000-000000000000", "closed one")
         self.run_script("done", "33333333-0000-4000-8000-000000000000")
         self.transcript("44444444-0000-4000-8000-000000000000", "new one")
-        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager (2 managed · 1 watched · 0 active · 1 new) 🟥🟥")
+        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager · release-2026-10-27 (2 managed · 1 watched · 0 active · 1 new) 🟥🟥")
         output = json.loads(self.hook().stdout)["hookSpecificOutput"]
         self.assertIn("'new one' [44444444]", output["additionalContext"])
         self.assertIn("AskUserQuestion", output["additionalContext"])
@@ -401,6 +402,16 @@ class GuideTitleTest(GuideTitleBase):
         self.assertEqual(self.guide_title(SESSION_GUIDE_TITLE="{managed}/{watched}/{active}/{new} of {tracked}"),
                          "2/1/0/0 of 3")
 
+    def test_title_names_the_ledger_slug_and_host(self):
+        self.run_script("mark", self.ledger, "--session", GUIDE)
+        host = socket.gethostname().split(".")[0]
+        self.assertEqual(self.guide_title(SESSION_GUIDE_TITLE="{slug} on {host}: {managed}"),
+                         "release-2026-10-27 on %s: 2" % host)
+        self.assertTrue(self.guide_title().startswith("🟥🟥 Sessions Manager · release-2026-10-27 ("))
+        # a custom title from before {slug} and {host} existed still renders
+        self.assertEqual(self.guide_title(SESSION_GUIDE_TITLE="🟥🟥 Sessions Manager · hub ({managed} managed) 🟥🟥"),
+                         "🟥🟥 Sessions Manager · hub (2 managed) 🟥🟥")
+
     def test_done_session_gets_the_check_prefix_in_place_of_g(self):
         self.run_script("guided", WORKER)
         self.assertEqual(self.run_script("done", WORKER).returncode, 0)
@@ -439,17 +450,17 @@ class GuideTitleTest(GuideTitleBase):
                                    "| search reindex old [a1a1a1] | MANAGED | x | | | | |\n| old lead [c1c1c1] |")
                     .replace("| personal notes [e8f9a0] | IGNORED", "| no id here | MANAGED | x | | | | |\n| personal notes [e8f9a0] | IGNORED"))
         # billing, search reindex (its topmost row; the two rows below it are skipped) and the row with no id
-        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager (3 managed · 1 watched · 0 active · 0 new) 🟥🟥")
+        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager · release-2026-10-27 (3 managed · 1 watched · 0 active · 0 new) 🟥🟥")
         os.makedirs(os.path.join(self.cfg, "session-guide", "guides"), exist_ok=True)
         self.run_script("done", "3fa9c100-0000-4000-8000-000000000000")
-        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager (2 managed · 1 watched · 0 active · 0 new) 🟥🟥")
+        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager · release-2026-10-27 (2 managed · 1 watched · 0 active · 0 new) 🟥🟥")
 
     def test_newest_row_level_wins_when_two_rows_name_one_session(self):
         self.run_script("mark", self.ledger, "--session", GUIDE)
         with open(self.ledger, "w") as f:
             f.write(LEDGER.replace("| billing export lead [3fa9c1] | MANAGED", "| billing export lead [3fa9c1] | DONE (merged)\n"
                                    "| billing export lead [3fa9c1] | MANAGED"))
-        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager (1 managed · 1 watched · 0 active · 0 new) 🟥🟥")
+        self.assertEqual(self.guide_title(), "🟥🟥 Sessions Manager · release-2026-10-27 (1 managed · 1 watched · 0 active · 0 new) 🟥🟥")
 
     def test_done_sets_the_row_level_in_the_guide_ledger(self):
         self.run_script("mark", self.ledger, "--session", GUIDE)

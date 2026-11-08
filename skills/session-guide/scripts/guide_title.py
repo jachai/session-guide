@@ -29,12 +29,13 @@
 A marked session gets this title on every prompt and every start, so a rename (by hand or by another titling hook)
 is undone on the next turn:
 
-    🟥🟥 Sessions Manager (2 managed · 1 watched · 3 active · 1 new) 🟥🟥
+    🟥🟥 Sessions Manager · release-guide (2 managed · 1 watched · 3 active · 1 new) 🟥🟥
 
 managed, watched and active count those rows in the ledger's `## Sessions` table; new is the live count of sessions
 active in the last 12 hours with no row there (see sweep). To pick your own format, set SESSION_GUIDE_TITLE (for
 hooks: in settings.json "env") with {managed}, {watched}, {active}, {new} and {tracked} (managed + watched)
-placeholders. Avoid `*`: some title tools strip markdown. Keep
+placeholders, plus {slug} (the ledger's folder name) and {host} (this machine's short host name), which tell two
+guides apart when Remote Control shows another machine's sessions too. A format without them still works. Avoid `*`: some title tools strip markdown. Keep
 the "🟥🟥 Sessions Manager" start if you use claude-top: it falls back to it for a session without a marker. The
 marker is
 $CLAUDE_CONFIG_DIR/session-guide/guides/<session id> (default ~/.claude), holding the ledger path. The hook fails
@@ -105,11 +106,12 @@ import glob
 import json
 import os
 import re
+import socket
 import sys
 import time
 
-TITLE = ("\U0001f7e5\U0001f7e5 Sessions Manager ({managed} managed \u00b7 {watched} watched \u00b7 {active} active"
-         " \u00b7 {new} new) \U0001f7e5\U0001f7e5")
+TITLE = ("\U0001f7e5\U0001f7e5 Sessions Manager \u00b7 {slug} ({managed} managed \u00b7 {watched} watched"
+         " \u00b7 {active} active \u00b7 {new} new) \U0001f7e5\U0001f7e5")
 RETIRED_TITLE = ("\U0001f39f\ufe0f\U0001f39f\ufe0f Sessions Manager (retired)"
                  " \U0001f39f\ufe0f\U0001f39f\ufe0f")
 GUIDED_PREFIX = "\U0001f7e7\U0001f7e7 (g) "
@@ -377,6 +379,8 @@ def title_for(session_id, current=""):
     found = counts(ledger, session_id)
     if found is None:
         return None
+    found = dict(found, slug=os.path.basename(os.path.dirname(os.path.abspath(ledger))),
+                 host=socket.gethostname().split(".")[0])
     return (os.environ.get("SESSION_GUIDE_TITLE") or TITLE).format(**found)
 
 

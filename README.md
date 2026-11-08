@@ -117,7 +117,7 @@ One color per kind of session, so the agents view reads at a glance:
 
 | Title | Session |
 |---|---|
-| `🟥🟥 Sessions Manager (2 managed · 1 watched · 3 active · 1 new) 🟥🟥` | The active guide |
+| `🟥🟥 Sessions Manager · release-guide (2 managed · 1 watched · 3 active · 1 new) 🟥🟥` | The active guide |
 | `🎟️🎟️ Sessions Manager (retired) 🎟️🎟️` | A retired guide |
 | `⬜⬜ design spike · Reading the diff` | WATCHED: the guide reads it but doesn't manage it |
 | `🟦🟦 notes cleanup · Tidying the index` | ACTIVE: running, neither managed nor watched |
@@ -132,10 +132,11 @@ varies by platform; override it with `SESSION_GUIDE_RETIRED_TITLE`.
 The guide keeps one title, so you can always find it in the agents view:
 
 ```
-🟥🟥 Sessions Manager (2 managed · 1 watched · 3 active · 1 new) 🟥🟥
+🟥🟥 Sessions Manager · release-guide (2 managed · 1 watched · 3 active · 1 new) 🟥🟥
 ```
 
-managed, watched and active count the ledger's rows at those levels. new is the count of sessions active in the
+`release-guide` is the ledger's slug (its folder name), so two guides, say one per machine over Remote Control, read
+apart. managed, watched and active count the ledger's rows at those levels. new is the count of sessions active in the
 last 12 h that have no ledger row yet, counted live on every prompt. At start the
 guide runs
 `scripts/guide_title.py mark <ledger>`. A `UserPromptSubmit` and `SessionStart` hook then re-applies the title on
@@ -170,7 +171,9 @@ Every WATCHED session's title starts with `⬜⬜ `, from `guide_title.py watche
   `session-titles off <its id>` so the two hooks don't take turns. Guided and watched sessions keep session-titles on: its hook's title
   overrides this one, so `guide_title.py` also puts the prefix into its stored origin, and both give the same title.
 - To use your own format, set `SESSION_GUIDE_TITLE`, for example `"guide {managed}/{watched}/{new}"`, in the `env`
-  block of `settings.json` (`{tracked}` is managed + watched). Avoid `*`, because some title tools strip markdown, and
+  block of `settings.json` (`{tracked}` is managed + watched, `{slug}` the ledger's slug, `{host}` this machine's
+  short host name). Running a guide on two machines? See [two guides on two machines](docs/other-machine-setup.md).
+  Avoid `*`, because some title tools strip markdown, and
   keep it short, because the agents view and claude-top cut long names. claude-top spots a guide by its marker file
   and falls back to the `🟥🟥 Sessions Manager` start. The closed prefix is `SESSION_GUIDE_DONE_PREFIX`.
 
