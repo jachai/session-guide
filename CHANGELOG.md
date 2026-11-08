@@ -5,6 +5,30 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-11-08
+
+### Changed
+
+- **One guide per ledger, per machine.** Remote Control shows another machine's guide and its workers in `ListAgents`,
+  and four rules reached across: the sole-guide rule retired any session titled like a guide, a guide retired itself
+  on any RETIRE, workers reported to the newest guide that introduced itself, and the guide classified every session
+  it saw. Now a rival guide is one on this machine (claude-top or a marker) whose marker or `Guide:` line names this
+  ledger; a Remote Control guide, or one with another ledger, goes on the ledger's new `Other guides:` line and is
+  never retired or messaged (unsure: ask the user, recommending "leave it"). A RETIRE counts only from the expected
+  successor or when it quotes this ledger's path, else the guide replies "not my ledger". Only sweep sessions and
+  non-Remote-Control rows are classified. Why: a guide sent RETIRE to another machine's guide.
+- The guide's intro, the worker contract and the prompt suffix carry the slug, the ledger path and the guide's `uds:`
+  socket. A worker accepts a new guide only when its intro names its guide's ledger path or slug, and answers
+  "not my guide: <slug>" otherwise; it never picks a guide from `ListAgents` by title or by which is newest. Join mode
+  reports to the socket on the ledger's new `Scope:` line (`<slug> · <host> · <config dir> · <uds socket>`).
+- The default guide title names the ledger: "🟥🟥 Sessions Manager · <slug> (...)". `SESSION_GUIDE_TITLE` gets
+  `{slug}` and `{host}` placeholders; a custom title without them works as before.
+
+### Added
+
+- [Two guides on two machines](docs/other-machine-setup.md): a scope name per machine in the title and worker prefix,
+  and the `local.md` "Other guides" paragraph each guide needs.
+
 ## [0.1.15] - 2026-11-03
 
 ### Added
