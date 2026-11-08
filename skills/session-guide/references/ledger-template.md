@@ -6,6 +6,11 @@ facts. Aim for under 6 KB: a fresh guide reads this file and nothing older. Writ
 that MANAGED and WATCHED sessions carry, or the "✅ " of closed ones: the Level column already says so. A session with no row is
 new: the title hook counts those live, and the guide asks about them until each has a row.
 
+**Scope** says which effort this guide runs and where: the ledger's slug, the machine (`hostname -s`), the config dir
+and the guide's `uds:` socket. Its intro to workers and its RETIRE checks use it. **Other guides** lists guides this
+one must leave alone: another machine's guide seen on a Remote Control row, or a guide on this machine with a
+different ledger. Never retire, introduce yourself to or message them, or give their workers a row.
+
 **Sessions** has a Model / effort column: the guide's pick for a session it started (`sonnet/low`), or what a session it
 took over runs, read from claude-top or peek. "kept <date>" records that the user turned down a switch, so the guide
 doesn't ask again until the session's task changes (`references/model-choice.md`).
@@ -41,6 +46,8 @@ lines in the Log with a date and the PR or version ("10-27 11:47 #142 ON PROD @a
 ```markdown
 # <slug> — guide ledger
 Guide: '<guide title>' [id8] since <date HH:MM>          (or: HANDING OFF to next guide)
+Scope: <slug> · <host> · <config dir> · <uds socket>
+Other guides: <title> [ref] (machine, project) · …   (or: none)
 Updated: <date HH:MM>   Usage: <plan usage, if you track it>
 
 ## Streams

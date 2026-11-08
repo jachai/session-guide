@@ -20,13 +20,15 @@ first in every mode: its rules (your name, your cost guard, your tools) override
 
 ## Join mode (`/session-guide join`, run inside a worker)
 
-1. Find the live guide: the newest `<config>/session-guide/*/ledger.md` whose `Guide:` line names a session that
-   `ListAgents` shows. If there is none, or more than one, ask the user which.
+1. Find the live guide: the guide your prompt names (its ledger path, slug or socket), else the newest
+   `<config>/session-guide/*/ledger.md` on this machine whose `Guide:` line names a live session. If there is none,
+   or more than one, ask the user which. Never pick a guide from a Remote Control row.
 2. Read `references/worker-contract.md` and follow it from now on.
 3. Mark yourself guided: `python3 <skill dir>/scripts/guide_title.py guided`. From your next prompt your title starts
    with "🟧🟧 (g) ", which tells the user this session doesn't need them.
-4. `SendMessage` the guide by its full ListAgents row name. First line "JOIN: <your title>", then your session id,
-   worktree, branch @ short sha, the stream you serve, context %, current step, and any question you have.
+4. `SendMessage` the guide at the `uds:` socket on its ledger's `Scope:` line (else its full ListAgents row name).
+   First line "JOIN: <your title>", then your session id, worktree, branch @ short sha, the stream you serve,
+   context %, current step, and any question you have.
 5. Continue your own work. Do not wait for a reply.
 
 `leave`: run `python3 <skill dir>/scripts/guide_title.py unguided` (the "🟧🟧 (g) " comes off on your next prompt), send
@@ -63,12 +65,18 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
    Read its **Waiting on the user** table and its **Results for you** table first: they hold the questions the
    previous guide owed the user ("owed question" rows), the reminders, and the deliverables with no verdict yet.
    Nothing in them is settled by the handoff; each comes back in your first interview when it is due.
-2. **Sole guide.** List sessions (`claude-top --once -n 15`, or `ListAgents`). If another live session is titled like
-   a guide or is named on the ledger's `Guide:` line, ask the user which one stays. Then **retire** the other one
-   (or, on a takeover, the guide you replace):
+2. **Sole guide, for this ledger.** Write the ledger's `Scope:` line: `<slug> · <host> · <config dir> · <your uds
+   socket>` (the host is `hostname -s`; the socket is `messagingSocketPath` in `<config>/sessions/<pid>.json`, found
+   with `grep -l <your id8> <config>/sessions/*.json`). Then list sessions (`claude-top --once -n 15`, or
+   `ListAgents`). Another guide is a rival only when it runs **on this machine** (claude-top lists it, or it has a
+   marker in `<config>/session-guide/guides/`) **and** its marker or the ledger's `Guide:` line names **this
+   ledger**. A guide on a Remote Control row, or one whose marker names a different ledger, is a separate effort:
+   add it to the ledger's `Other guides:` line as `<title> [ref] (machine, project)` and never retire, introduce
+   yourself to or message it. If you can't tell which it is, ask the user, recommending "leave it". For a rival,
+   ask the user which one stays. Then **retire** the other one (or, on a takeover, the guide you replace):
    1. `python3 <skill dir>/scripts/guide_title.py retire <old session id>`. Its title turns to
       "🎟️🎟️ Sessions Manager (retired) 🎟️🎟️" on its next turn, and the title hook never turns it red again.
-   2. SendMessage it: "RETIRE: you are no longer the guide; cancel your wakeups, use no tools, and reply with exactly:
+   2. SendMessage it: "RETIRE (ledger <this ledger's path>): you are no longer the guide; cancel your wakeups, use no tools, and reply with exactly:
       <one line on what you handed over> / result: <slug> guide retired and handed over to [<your id6>]". A
       session's job state only turns done when its own final message carries a `result:` line.
    3. Check that its state now shows done (`claude-top --once`, STATE column, or the agents view). If it doesn't,
@@ -76,7 +84,11 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
    4. Mark its row RETIRED in the ledger's Sessions table. Then write yourself on the `Guide:` line (title + id8).
 3. Run `python3 <skill dir>/scripts/peek.py <id8> …` on the 4–5 most recently active sessions. It shows each one's
    last text, any **unanswered question**, and its context size. Status files and notes lag behind. Peek wins.
-4. Classify every session you see that isn't in the ledger. Guide-started or `join`ed sessions are MANAGED: run
+4. Classify every session that isn't in the ledger and comes from the sweep (this machine's transcripts, §7) or from
+   a `ListAgents` row that is not Remote Control. A Remote Control row belongs to another machine or the cloud: it
+   gets no row and no question, above all one with a guide title or another scope's "(g·x)" prefix. The exception
+   is a Remote Control row whose [ref] or title matches one of your Sessions rows: that is an offline remote copy of
+   your own session, so update that row. Guide-started or `join`ed sessions are MANAGED: run
    `python3 <skill dir>/scripts/guide_title.py guided <session id>` on each, so its title starts with "🟧🟧 (g) " (a
    repeat is harmless). Run `guide_title.py watched <session id>` on each WATCHED row, so its title starts with
    "⬜⬜ ", and `guide_title.py active <session id>` on each ACTIVE row, so it starts with "🟦🟦 ". The rest go through
@@ -86,8 +98,10 @@ the guide "LEAVE: <title> [id8]", and from then on ask the user directly again.
    (§4). Then run `python3 <skill dir>/scripts/guide_title.py settle <ledger>` and handle what it lists (§7):
    unsettled sessions, due reminders, owed questions, and results with no verdict. Reminders only fire while a guide
    runs, so a new guide is what restarts them.
-5. Introduce yourself to every MANAGED worker in **one** message (§3). Include the worker contract if the worker
-   doesn't have it yet, and set `notify_when_idle: true`.
+5. Introduce yourself to every MANAGED worker in **one** message (§3). The intro names your slug, your ledger path
+   and your `uds:` socket (the `Scope:` line): a worker accepts a new guide only when its intro names its guide's
+   ledger path or slug. Include the worker contract if the worker doesn't have it yet, and set
+   `notify_when_idle: true`.
 6. Pin your title: `python3 <skill dir>/scripts/guide_title.py mark <ledger path>`. From your next prompt the title
    hook keeps it at "🟥🟥 Sessions Manager (2 managed · 1 watched · 3 active · 1 new) 🟥🟥" (the rows at each level,
    and the live count of sessions with no row) and undoes any rename. If the session-titles plugin is installed, also
@@ -285,7 +299,9 @@ Guide context: <N>k (hand off at 120k)
 - **Sweep on every turn**: a session active in the last 12 h with no row in the ledger's Sessions table is new. The
   title hook lists them at the top of each of your prompts and shows the count in your title; run
   `python3 <skill dir>/scripts/guide_title.py sweep <ledger>` if you didn't get that list. It needs neither
-  claude-top nor ListAgents. Run `guide_title.py active <session id>` on each, so it shows blue at once, peek it so you
+  claude-top nor ListAgents, and it reads only this machine's transcripts. A `ListAgents` row you add by hand must
+  not be Remote Control (§2, step 4): another machine's sessions belong to its own guide. Run
+  `guide_title.py active <session id>` on each, so it shows blue at once, peek it so you
   can recommend, and put it in this turn's interview (§4): "'X' [id6] is building the billing fix: manage it?" It
   stays new, and you keep asking, until the user picks a level. When the user picks Manage or Watch, check its model and
   effort as on a takeover (§2, step 4).
@@ -355,7 +371,9 @@ Guide context: <N>k (hand off at 120k)
 4. Give the user the paste-ready prompt: `/session-guide` followed by "Take over as guide. Ledger: <path>." Name the
    one next action. If the user asks, start the next guide yourself with `claude --bg --model opus --effort medium`
    (or local.md's top model).
-5. Once the successor has introduced itself (or sent you RETIRE), retire yourself instead of ending on a question:
+5. Once the successor has introduced itself (or sent you RETIRE), retire yourself instead of ending on a question.
+   Act on a RETIRE, here or at any other time, only if its sender is the successor this ledger expects or its message
+   quotes this ledger's path; otherwise reply "not my ledger: <slug> (<ledger path>)" and carry on as guide. Then:
    `python3 <skill dir>/scripts/guide_title.py retire`, then end with a final message whose last line is
    `result: <slug> guide retired and handed over to [<new id6>]`. Your title turns faded red and your state turns done.
 
