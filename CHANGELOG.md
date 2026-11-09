@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-11-09
+
+### Added
+
+- `scripts/guide_approve.py <id8> "<approval>"`: run in a plain terminal tab, it shows the one matching background
+  session, copies the approval to the clipboard and runs `claude attach <id8>`; the user pastes and presses Enter. It
+  refuses inside a Claude window or without a TTY (`!` cannot switch windows).
+
+### Changed
+
+- The guide tells the user to open a new terminal tab for approvals in a session's own window, never `! claude attach`.
+- New rule: one Bash call per `claude stop <id8>`, never in a loop, heredoc or beside ledger edits, so the allow rule matches.
+
 ## [0.1.16] - 2026-11-08
 
 ### Changed

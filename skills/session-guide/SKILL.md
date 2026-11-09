@@ -206,7 +206,10 @@ one. Everything you need from the user goes through `AskUserQuestion`:
    - Approval you can relay (a cost-guard `guard ok`, a go-ahead): Approve / Not now. On Approve, relay it and log it
      as a decision. It unblocks only what the user approved (§3).
    - Something only the user can do (a merge, a `!` command, a dialog open in another session's window, which a relay
-     can't answer): the question carries the link or command, with Done / Not yet. On Done, verify it. On Not yet,
+     can't answer): the question carries the link or command, with Done / Not yet.
+     To approve in that session's own window: "Open a new terminal tab and run
+     `python3 ~/.claude/skills/session-guide/scripts/guide_approve.py <id8> \"<approval>\"` (or `claude attach <id8>`).
+     Check the header names '<title>' before typing. Never `! claude attach` inside a Claude window." On Done, verify it. On Not yet,
      keep it under **Needs you now** and ask again at the next wake that has news on it.
    - Model switch (`references/model-choice.md`): "'<title>' [id6] runs <model>/<effort> on <task>; switch to
      <model>/<effort>? Type `/model <alias>` and `/effort <level>` in its window." Switched / Keep as is. You can't
@@ -292,6 +295,8 @@ Guide context: <N>k (hand off at 120k)
   3. Check that its state now shows done (`claude-top --once`, STATE column). If it doesn't (it is blocked on a
      question, a permission prompt or a cost guard, so the message can't reach its Claude), list
      `! claude stop <session id>` under **Needs you now**.
+     Stop sessions with one Bash call per session holding only `claude stop <id8>` (or `claude stop a && claude stop b`);
+     never inside a loop, heredoc or next to ledger edits: the allow rule then doesn't match and auto mode blocks it.
   4. `done` also sets that session's Sessions row Level to DONE when it finds the guide's ledger (it says so when it
      can't: then set it yourself). The title's counts skip closed sessions and count a session once, at its topmost row.
 
